@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Add optional password, boolean and select setting hints for the separate MyGo Music reference implementation. Existing official hosts keep text inputs, unchanged string values and blank defaults; the plugin does not require the fork.
+- Translate sign-in choices and distinguish password masking from plaintext storage.
+
 ## 0.1.2
 
 - Collect album batches into one scrollable list across all album sorts and home-page See All links, instead of navigating every 200 albums. Bound each load to 5,000 albums and 8 seconds, retaining completed batches on later network failures with an accurately named Remaining albums continuation.

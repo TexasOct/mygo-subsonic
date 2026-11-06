@@ -26,7 +26,7 @@ The login window shows connection progress and explains what to check on failure
 
 This release supports **one server and one set of credentials**, with multiple entrances tried in order. There is no multi-server/account manager and no dependency on host modifications or a MyGo fork.
 
-Official MyGo renders plugin settings as **text inputs**, not switches, dropdowns or masked password fields.
+Released official MyGo versions still render these settings as **text inputs**, so the instructions below remain valid. This branch adds optional `password`, `boolean` and `select` metadata for the [host reference implementation](https://github.com/TexasOct/mygo-music/tree/feat/plugin-setting-types). Supporting hosts can mask passwords, show a history switch and offer sign-in choices. **This is not accepted upstream and the plugin does not require the fork.**
 
 | Setting | Value |
 | --- | --- |
@@ -60,7 +60,7 @@ Default token authentication sends a fresh public salt and `t = MD5(password + s
 
 Metadata and mutations use POST form bodies and reject redirects. Artwork/audio URLs contain authentication because MyGo fetches them separately. Sign-in validates with `ping` before saving a configuration-bound local marker. Logout or connection changes invalidate it; matching markers survive runtime restarts.
 
-**LAN HTTP works; HTTPS is not mandatory.** HTTP exposes traffic, so prefer HTTPS outside trusted networks. **Official MyGo displays and stores settings, including passwords, as plain text.** Use a dedicated low-privilege account and protect settings, backups, screenshots and authenticated media URLs. See [SECURITY.md](SECURITY.md).
+**LAN HTTP works; HTTPS is not mandatory.** HTTP exposes traffic, so prefer HTTPS outside trusted networks. **Settings, including passwords, remain plaintext at rest; official releases also display passwords as plain text. Masking in the reference implementation is not encryption.** Use a dedicated low-privilege account and protect settings, backups, screenshots and authenticated media URLs. See [SECURITY.md](SECURITY.md).
 
 ## Features
 

@@ -19,9 +19,9 @@ Install the folder or ZIP from official MyGo Music's **Settings → Plugins → 
 - Keep protocol, authentication, mapping and feature logic in separate modules. Use strict types, not `any` or silent type assertions.
 - Use only host/sandbox APIs in plugin code. Node APIs belong in development scripts only.
 - Never hand-edit root `index.js`. Rebuild and commit it alongside source so source archives work without a user build. Official MyGo runs standalone TS but does not resolve local runtime imports; neither modular TS main nor a JS import bridge works. Entrypoint regressions document this constraint.
-- Keep the release manifest within the official `key`, `label`, `help`, `link` settings contract. Do not imply native switches/selectors/password masking work in the official host.
+- Keep the official `key`, `label`, `help`, `link` text-settings contract usable. Optional `type`/`options` hints may improve compatible hosts, but must not change stored keys, string values or blank-value behavior. Clearly distinguish the reference implementation from released official hosts.
 - Keep LAN HTTP support. Do not auto-upgrade transport or downgrade authentication. Preserve password whitespace and encode parameters with `URLSearchParams`.
-- Keep one server/account with ordered entrances in the official text setting. Preserve input order, normalize once, and never replay writes after ambiguous network failures. Do not reintroduce profile/account management or host-only controls into this release.
+- Keep one server/account with ordered entrances in the official text setting. Preserve input order, normalize once, and never replay writes after ambiguous network failures. Do not reintroduce profile/account management or require host-only controls.
 - Treat settings/authenticated URLs as secrets. Never display untrusted server error text or log credentials.
 - Translate visible text in `locales/zh-CN.json`. MyGo translates manifest labels/help; runtime messages use `t(...)`.
 - Test meaningful behavior rather than wording/default snapshots. Begin tests with a short behavioral comment. Tests must not need real credentials or a public music server.
@@ -34,7 +34,7 @@ The `test/upstream/*.go.txt` fixtures stay outside a Go module. The upstream scr
 
 Check every list entrypoint when changing browsing: all album sorts, home See All links, artists, all search kinds, liked tracks, saved albums, playlist lists and detail pages. Keep native automatic continuation where it exists. Album collection has one shared time/item budget; a concurrent route probe must not extend a caller's deadline. Do not describe all host grids as virtualized or add indefinite full-library loads.
 
-Host feature/UI implementation work is paused and outside this release. No host patch or second protocol implementation belongs in this repository. Any future upstream submission requires separate confirmation after the usable plugin release.
+The optional native-controls proposal is developed separately in the MyGo Music fork, not as a host patch or second protocol implementation in this repository. Validate additive metadata against an unmodified official host and the reference implementation; masking never implies encrypted storage. Discuss the reference implementation through an upstream issue, not a pull request. Stable plugin releases remain independent of the proposal.
 
 ## Release checklist
 
