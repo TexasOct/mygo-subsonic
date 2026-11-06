@@ -1,0 +1,26 @@
+{
+  "name": "mygo-subsonic",
+  "version": "0.1.0",
+  "description": "A TypeScript Subsonic source plugin for MyGo Music",
+  "private": true,
+  "repository": { "type": "git", "url": "https://github.com/TexasOct/mygo-subsonic.git" },
+  "bugs": { "url": "https://github.com/TexasOct/mygo-subsonic/issues" },
+  "homepage": "https://github.com/TexasOct/mygo-subsonic",
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "node scripts/build.mjs",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "package": "npm run typecheck && npm run build && node scripts/package.mjs",
+    "check": "npm run typecheck && npm test",
+    "test:upstream": "npm run build && node scripts/test-upstream.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.12",
+    "typescript": "^5.9.3"
+  }
+}

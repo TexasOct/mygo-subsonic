@@ -1,0 +1,281 @@
+package plugin
+
+import (
+	"crypto/md5"
+	"encoding/hex"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+
+	"mygo-music/internal/music"
+)
+
+// The shipped module must execute in MyGo's real MoeJS sandbox, not just Node.
+func TestSubsonicRuntime(t *testing.T) {
+	dir := os.Getenv("MYGO_SUBSONIC_DIR")
+	if dir == "" {
+		t.Fatal("MYGO_SUBSONIC_DIR is required")
+	}
+	const password = "enc: 密码 +&= "
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Error(err)
+		}
+		if r.Method != "POST" || r.URL.RawQuery != "" {
+			t.Errorf("unexpected metadata transport: %s %s", r.Method, r.URL.Path)
+		}
+		if r.Form.Get("u") != "listener" || r.Form.Get("v") != "1.16.1" {
+			t.Errorf("missing authentication: %v", r.Form)
+		}
+		if p := r.Form.Get("p"); p != "" {
+			decoded, err := hex.DecodeString(strings.TrimPrefix(p, "enc:"))
+			if err != nil || !strings.HasPrefix(p, "enc:") || string(decoded) != password {
+				t.Error("legacy password was modified")
+			}
+		} else {
+			salt := r.Form.Get("s")
+			sum := md5.Sum([]byte(password + salt))
+			if len(salt) < 6 || r.Form.Get("t") != hex.EncodeToString(sum[:]) {
+				t.Error("incorrect token authentication")
+			}
+		}
+		response := map[string]any{"status": "ok", "version": "1.16.1"}
+		switch strings.TrimPrefix(r.URL.Path, "/music/rest/") {
+		case "ping.view":
+		case "search3.view":
+			response["searchResult3"] = map[string]any{"song": []any{map[string]any{"id": "opaque/1", "title": r.Form.Get("query"), "duration": 1.25, "albumId": "album"}}}
+		case "getSong.view":
+			response["song"] = map[string]any{"id": "opaque/1", "suffix": "flac", "size": 123, "title": "Song", "artist": "Artist"}
+		case "getLyrics.view":
+			response["lyrics"] = map[string]any{"value": "[00:01.00]Hello"}
+		case "getAlbum.view":
+			response["album"] = map[string]any{"id": "album", "name": "Album", "originalReleaseDate": map[string]any{"year": 2024, "month": 3, "day": 9}}
+		default:
+			t.Errorf("unexpected method: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"subsonic-response": response})
+	}))
+	defer server.Close()
+	p, err := Load(dir, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	for key, value := range map[string]string{"serverUrl": server.URL + "/music/rest/", "username": "listener", "password": password} {
+		if err := p.SetSetting(key, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !p.Can("signIn") || !p.Can("stream") || !p.Can("movePlaylistTrack") || p.Can("remotePlay") {
+		t.Fatal("incorrect capabilities")
+	}
+	if a, err := p.Account(); err != nil || a != nil {
+		t.Fatalf("before login: %v %v", a, err)
+	}
+	if a, err := p.SignIn(); err != nil || a.ID != "listener" {
+		t.Fatalf("login: %v %v", a, err)
+	}
+	result, err := p.Search("日本語 +&", music.SearchTracks, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Tracks) != 1 || result.Tracks[0].Duration != 1250 || result.Tracks[0].Name != "日本語 +&" || result.Tracks[0].Source != "subsonic" {
+		t.Fatalf("search: %+v", result)
+	}
+	album, err := p.Album("album")
+	if err != nil || album.Album.Released != "2024-03-09" {
+		t.Fatalf("album: %+v %v", album, err)
+	}
+	stream, err := p.Stream("opaque/1", "lossless")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := url.Parse(stream.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stream.Type != "flac" || stream.Size != 123 || u.Scheme != "http" || u.Query().Get("id") != "opaque/1" || u.Query().Get("format") != "raw" {
+		t.Fatalf("stream: %+v", stream)
+	}
+	lyrics, err := p.Lyrics("opaque/1")
+	if err != nil || lyrics.LRC != "[00:01.00]Hello" {
+		t.Fatalf("lyrics: %+v %v", lyrics, err)
+	}
+	if err := p.SignOut(); err != nil {
+		t.Fatal(err)
+	}
+	if a, err := p.Account(); err != nil || a != nil {
+		t.Fatalf("logout: %v %v", a, err)
+	}
+	if err := p.SetSetting("authMode", "legacy"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.SignIn(); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.SetSetting("password", "changed"); err != nil {
+		t.Fatal(err)
+	}
+	if a, err := p.Account(); err != nil || a != nil {
+		t.Fatalf("credential change: %v %v", a, err)
+	}
+}
+
+// The official runtime must parse ordered addresses and use the reachable media entrance.
+func TestSubsonicAddresses(t *testing.T) {
+	var mu sync.Mutex
+	var paths []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		paths = append(paths, r.URL.Path)
+		mu.Unlock()
+		if strings.HasPrefix(r.URL.Path, "/lan/") {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		r.ParseForm()
+		if r.Form.Get("u") != "listener" || r.Form.Get("t") == "" {
+			t.Error("missing authentication")
+		}
+		response := map[string]any{"status": "ok", "version": "1.16.1"}
+		if strings.HasSuffix(r.URL.Path, "/search3.view") {
+			response["searchResult3"] = map[string]any{"song": []any{map[string]any{"id": "same/opaque", "title": "Track"}}}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"subsonic-response": response})
+	}))
+	defer server.Close()
+	p, err := Load(os.Getenv("MYGO_SUBSONIC_DIR"), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	for key, value := range map[string]string{
+		"serverUrl": server.URL + "/lan/rest/,\n" + server.URL + "/wan, " + server.URL + "/lan",
+		"username":  "listener", "password": "secret",
+	} {
+		if err := p.SetSetting(key, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := p.SignIn(); err != nil {
+		t.Fatal(err)
+	}
+	result, err := p.Search("x", music.SearchTracks, 0)
+	if err != nil || len(result.Tracks) != 1 {
+		t.Fatalf("search: %+v %v", result, err)
+	}
+	id := result.Tracks[0].ID
+	if id != "same/opaque" {
+		t.Fatalf("opaque ID changed: %s", id)
+	}
+	stream, err := p.Stream(id, "high")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, _ := url.Parse(stream.URL)
+	if u.Path != "/wan/rest/stream.view" || u.Query().Get("id") != "same/opaque" {
+		t.Fatalf("wrong route: %s", u.Path)
+	}
+	mu.Lock()
+	got := strings.Join(paths, ",")
+	mu.Unlock()
+	if got != "/lan/rest/ping.view,/wan/rest/ping.view,/wan/rest/search3.view,/lan/rest/ping.view,/wan/rest/ping.view" {
+		t.Fatalf("routes: %s", got)
+	}
+	if err := p.SetSetting("serverUrl", server.URL+"/wan"); err != nil {
+		t.Fatal(err)
+	}
+	if account, err := p.Account(); err != nil || account != nil {
+		t.Fatalf("address edit retained login: %v %v", account, err)
+	}
+	if _, err := p.SignIn(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A release archive must survive the same installer used by the desktop UI.
+func TestSubsonicArchive(t *testing.T) {
+	archive := os.Getenv("MYGO_SUBSONIC_ZIP")
+	if archive == "" {
+		t.Skip("set MYGO_SUBSONIC_ZIP to additionally test ZIP installation")
+	}
+	dir := t.TempDir()
+	pending, err := Open(archive, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pending.Discard()
+	if pending.Manifest.ID != "subsonic" {
+		t.Fatalf("unexpected plugin: %s", pending.Manifest.ID)
+	}
+	if err := pending.Install(dir); err != nil {
+		t.Fatal(err)
+	}
+	installed, err := Load(filepath.Join(dir, "subsonic"), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer installed.Close()
+	if !installed.Can("stream") || !installed.Can("signIn") {
+		t.Fatal("installed plugin has missing capabilities")
+	}
+	if account, err := installed.Account(); err != nil || account != nil {
+		t.Fatalf("installed plugin execution: %v %v", account, err)
+	}
+}
+
+// The official loader accepts standalone TS but does not resolve runtime imports.
+func TestSubsonicEntrypoints(t *testing.T) {
+	for _, tc := range []struct {
+		name, main, source string
+		imports            bool
+	}{
+		{"standalone TypeScript", "entry.ts", `export function account(): {id: string, name: string} { return {id:"test",name:"Standalone TS"}; }`, false},
+		{"JavaScript bridge", "bridge.js", `import { account as implementation } from "./entry.ts"; export function account() { return implementation(); }`, true},
+		{"modular TypeScript", "src/index.ts", `import { account as implementation } from "./auth.js"; export function account(): {id:string,name:string} { return implementation(); }`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			b, _ := json.Marshal(map[string]any{"id": "entry-test", "name": "Entry test", "main": tc.main})
+			if err := os.WriteFile(filepath.Join(dir, "plugin.json"), b, 0600); err != nil {
+				t.Fatal(err)
+			}
+			write := func(name, content string) {
+				path := filepath.Join(dir, name)
+				if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			write("entry.ts", `export function account(): {id:string,name:string} {return {id:"test",name:"TS"};}`)
+			write("src/auth.js", `export function account() {return {id:"test",name:"JS"};}`)
+			write(tc.main, tc.source)
+			p, err := Load(dir, t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer p.Close()
+			account, err := p.Account()
+			if tc.imports {
+				if err == nil || !strings.Contains(err.Error(), "link it with moejs.Link and a resolver") {
+					t.Fatalf("expected unresolved import, got account=%v err=%v", account, err)
+				}
+				t.Log(err)
+				return
+			}
+			if err != nil || account == nil || account.ID != "test" {
+				t.Fatalf("standalone TS: %v %v", account, err)
+			}
+		})
+	}
+}

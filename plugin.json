@@ -1,0 +1,28 @@
+{
+  "id": "subsonic",
+  "name": "Subsonic",
+  "version": "0.1.0",
+  "minAppVersion": "0.1.13",
+  "main": "index.js",
+  "playback": "stream",
+  "permissions": { "network": ["*"] },
+  "settings": [
+    {
+      "key": "serverUrl",
+      "label": "Server URLs (priority order)",
+      "help": "Enter one to five HTTP/HTTPS base URLs for the SAME server, separated by commas. First address has highest priority; HTTP, ports and subpaths are supported."
+    },
+    { "key": "username", "label": "Username" },
+    { "key": "password", "label": "Password", "help": "MyGo displays and stores settings as plain text. Use a dedicated, low-privilege account." },
+    { "key": "authMode", "label": "Authentication mode", "help": "Leave empty or enter token (recommended). Enter legacy only if your server requires it. No automatic downgrade." },
+    { "key": "musicFolderId", "label": "Music folder ID", "help": "Optional. Limits browsing, search and favorites where the Subsonic API supports it. Playlists are account-wide." },
+    { "key": "scrobble", "label": "Scrobbling", "help": "Enter true to submit played tracks; empty or false disables it. This is a text setting, not a switch." }
+  ],
+  "navigation": [
+    { "builtin": "home" },
+    { "title": "Albums", "page": "albums:alphabeticalByName:0", "icon": "album" },
+    { "title": "Artists", "page": "artists:0", "icon": "artist" },
+    { "builtin": "liked" },
+    { "builtin": "savedAlbums" }
+  ]
+}
