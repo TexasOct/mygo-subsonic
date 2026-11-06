@@ -1,0 +1,94 @@
+package app
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strconv"
+	"testing"
+
+	"github.com/egoist/mygo/ui"
+	"mygo-music/internal/music"
+)
+
+// Actual plugin responses use virtual rows and a compact native continuation,
+// at both desktop and narrow widths, without any host implementation changes.
+func TestSubsonicBrowseUI(t *testing.T) {
+	for _, width := range []int{1200, 640} {
+		for _, dark := range []bool{false, true} {
+			for _, name := range []string{"albums", "artists"} {
+				mode := "light"
+				if dark {
+					mode = "dark"
+				}
+				t.Run(name+"-"+mode+"-"+strconv.Itoa(width), func(t *testing.T) {
+					data, err := os.ReadFile(filepath.Join(os.Getenv("MYGO_SUBSONIC_BROWSE_DIR"), name+".json"))
+					if err != nil {
+						t.Fatal(err)
+					}
+					var page music.Browse
+					if err := json.Unmarshal(data, &page); err != nil {
+						t.Fatal(err)
+					}
+					a := newTestApp()
+					posts := posts(a)
+					a.library.browses[name] = &browseData{page: &page}
+					a.route = route{page: pageBrowse, src: "fake", id: name}
+					fake(a).browse = func(id string) (*music.Browse, error) {
+						if id != "albums:newest:200" {
+							t.Errorf("unexpected continuation: %s", id)
+						}
+						return &music.Browse{Title: "Last page"}, nil
+					}
+					tt := ui.NewTester(a.view, width, 800)
+					tt.SetDark(dark)
+					settled(tt)
+					if _, ok := tt.Find("See All"); ok {
+						t.Fatal("footer unexpectedly rendered in the initial viewport")
+					}
+					first, last := a.trackList.Visible()
+					if last-first > 20 {
+						t.Fatalf("initial viewport built too many rows: %d..%d", first, last)
+					}
+					a.trackList.ScrollToEnd()
+					settled(tt)
+					first, last = a.trackList.Visible()
+					if first < 10 || last-first > 20 {
+						t.Fatalf("end viewport not virtualized: %d..%d", first, last)
+					}
+					if name == "albums" {
+						button, ok := tt.Find("See All")
+						if !ok {
+							t.Fatalf("missing native continuation: %q", tt.Texts())
+						}
+						if button.W > 120 || button.H > 48 {
+							t.Fatalf("continuation is not compact: %+v", button)
+						}
+						if _, ok := tt.Find("Next page"); !ok {
+							t.Fatal("missing next-page title")
+						}
+					} else {
+						if _, ok := tt.Find("See All"); ok {
+							t.Fatal("artist index must not have continuation")
+						}
+						if _, ok := tt.Find("Artist 550"); !ok {
+							t.Fatal("last artist is not reachable")
+						}
+					}
+					if dir := os.Getenv("MM_FRAMES"); dir != "" {
+						saveFrame(t, dir, name+"-"+mode+"-"+strconv.Itoa(width)+".png", tt.Image())
+					}
+					if name == "albums" {
+						if err := tt.Click("See All"); err != nil {
+							t.Fatal(err)
+						}
+						if a.route != (route{page: pageBrowse, src: "fake", id: "albums:newest:200"}) {
+							t.Fatalf("wrong continuation route: %+v", a.route)
+						}
+						runPost(t, posts)
+					}
+				})
+			}
+		}
+	}
+}

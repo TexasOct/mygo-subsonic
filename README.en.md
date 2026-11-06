@@ -8,10 +8,10 @@ Targets **unmodified official MyGo Music**. Modular TypeScript is bundled into a
 
 ## Installation
 
-Requires MyGo Music **0.1.13+** and Subsonic API **1.16.1** with the endpoints you use. Tested in the real official runtime at [`799ec1b`](https://github.com/egoist/mygo-music/commit/799ec1bac6d3006ac1aa29e06be9e6ae92cf0028).
+Requires MyGo Music **0.1.13+** and Subsonic API **1.16.1** with the endpoints you use. Runtime and browsing UI tests use unmodified official revisions [`799ec1b`](https://github.com/egoist/mygo-music/commit/799ec1bac6d3006ac1aa29e06be9e6ae92cf0028) (0.1.13) and [`93bf5a6`](https://github.com/egoist/mygo-music/commit/93bf5a6202119305bc36fa7b1da71402c96e6879) (0.1.18).
 
 - [Install plugin](mygo-music://install-plugin?repo=TexasOct/mygo-subsonic), or paste `https://github.com/TexasOct/mygo-subsonic` into **Settings → Plugins → +**.
-- Or download `mygo-subsonic-0.1.0.zip` from [Releases](https://github.com/TexasOct/mygo-subsonic/releases) and install the local ZIP.
+- Or download `mygo-subsonic-0.1.1.zip` from [Releases](https://github.com/TexasOct/mygo-subsonic/releases) and install the local ZIP.
 - Developers can install this project folder. Keep `plugin.json`, `index.js` and `locales/` together when copying manually.
 
 Configure settings, switch to the Subsonic source and sign in.
@@ -67,7 +67,13 @@ Metadata and mutations use POST form bodies and reject redirects. Artwork/audio 
 - Legacy lyrics and optional OpenSubsonic structured lyrics.
 - Opt-in `scrobble` submissions.
 
-Pages contain 50 items. Unpaged artist indices/favorites/playlists are fetched in full and paginated locally, with corresponding large-library cost. Durations and lyric timing use MyGo milliseconds.
+### Browsing and pagination
+
+- **Albums**: batches of 200 with the current item range below the title. A compact native “Next page / See All” action at the end navigates to the next batch instead of rendering a cover-sized pagination card.
+- **Artist index**: `getArtists` already returns the complete index. The host's virtualized grid now scrolls through it without artificial 50-item pages.
+- **Search, liked tracks and saved albums**: 50-item batches, automatically loaded by the host as the list approaches the bottom.
+
+The host renders visible grid rows, but `browse()` has no remote-page append interface. Album continuation is therefore explicit navigation, not infinite loading. Unpaged artist indices, favorites and playlists are still fetched in full, with corresponding large-library cost. Durations and lyric timing use MyGo milliseconds.
 
 ### Quality and limitations
 
@@ -91,7 +97,9 @@ npm run test:upstream
 # Optional local clone source; still tests a pristine pinned official revision:
 MYGO_MUSIC_DIR=/path/to/mygo-music npm run test:upstream
 # Also test the official ZIP installer:
-MYGO_SUBSONIC_ZIP="$PWD/dist/mygo-subsonic-0.1.0.zip" npm run test:upstream
+MYGO_SUBSONIC_ZIP="$PWD/dist/mygo-subsonic-0.1.1.zip" npm run test:upstream
+# Another pinned official revision; UI tests consume real plugin responses:
+MYGO_MUSIC_REVISION=93bf5a6202119305bc36fa7b1da71402c96e6879 npm run test:upstream
 ```
 
 `src/index.ts` only exports capabilities. Separate modules handle address parsing, configuration, authentication, routing, HTTP, mapping and features. Do not edit generated root `index.js` manually.

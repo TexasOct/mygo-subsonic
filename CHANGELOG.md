@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.1
+
+- Replace album-sized “Next page” cover cards with the official host's compact section continuation action.
+- Increase album browsing to 200 items per page with one-item lookahead and visible item ranges; preserve existing continuation links without skipping items.
+- Show the complete artist index in the host's virtualized grid instead of splitting the already-fetched index into artificial pages.
+- Keep automatic incremental loading for search, liked tracks and saved albums; Browse remains explicit navigation because the official host has no append interface for it.
+- Add empty/exact-boundary paging regressions and real MoeJS-to-UI tests for virtualized rows, compact continuation, narrow/desktop widths and light/dark themes on pristine official hosts.
+
 ## 0.1.0
 
 Initial standalone MyGo Music source plugin targeting Subsonic API 1.16.1.

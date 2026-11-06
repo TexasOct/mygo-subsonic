@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -125,6 +126,82 @@ func TestSubsonicRuntime(t *testing.T) {
 	}
 	if a, err := p.Account(); err != nil || a != nil {
 		t.Fatalf("credential change: %v %v", a, err)
+	}
+}
+
+// Pagination must survive the real sandbox and preserve the native Browse model.
+func TestSubsonicBrowse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+		response := map[string]any{"status": "ok", "version": "1.16.1"}
+		switch r.URL.Path {
+		case "/rest/ping.view":
+		case "/rest/getAlbumList2.view":
+			if r.Form.Get("size") != "201" {
+				t.Errorf("album lookahead size: %q", r.Form.Get("size"))
+			}
+			offset, _ := strconv.Atoi(r.Form.Get("offset"))
+			var albums []any
+			for i := offset; i < min(offset+201, 201); i++ {
+				albums = append(albums, map[string]any{"id": "al" + strconv.Itoa(i), "name": "Album " + strconv.Itoa(i)})
+			}
+			response["albumList2"] = map[string]any{"album": albums}
+		case "/rest/getArtists.view":
+			var artists []any
+			for i := 0; i < 551; i++ {
+				artists = append(artists, map[string]any{"id": "ar" + strconv.Itoa(i), "name": "Artist " + strconv.Itoa(i)})
+			}
+			response["artists"] = map[string]any{"index": []any{map[string]any{"artist": artists}}}
+		default:
+			t.Errorf("unexpected browse method: %s", r.URL.Path)
+		}
+		json.NewEncoder(w).Encode(map[string]any{"subsonic-response": response})
+	}))
+	defer server.Close()
+	p, err := Load(os.Getenv("MYGO_SUBSONIC_DIR"), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	for key, value := range map[string]string{"serverUrl": server.URL, "username": "listener", "password": "password"} {
+		if err := p.SetSetting(key, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := p.SignIn(); err != nil {
+		t.Fatal(err)
+	}
+	albums, err := p.Browse("albums:newest:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(albums.Sections) != 2 || len(albums.Sections[0].Albums) != 200 || albums.Subtitle != "1–200" || albums.Sections[1].MorePage != "albums:newest:200" {
+		t.Fatalf("album page: %+v", albums)
+	}
+	for _, section := range albums.Sections {
+		if len(section.Links) > 0 {
+			t.Fatal("pagination must not render as a cover card")
+		}
+	}
+	last, err := p.Browse(albums.Sections[1].MorePage)
+	if err != nil || len(last.Sections) != 1 || len(last.Sections[0].Albums) != 1 || last.Sections[0].Albums[0].ID != "al200" || last.Sections[0].MorePage != "" {
+		t.Fatalf("last page: %+v %v", last, err)
+	}
+	artists, err := p.Browse("artists:0")
+	if err != nil || len(artists.Sections) != 1 || len(artists.Sections[0].Artists) != 551 || artists.Sections[0].MorePage != "" {
+		t.Fatalf("artist index: %+v %v", artists, err)
+	}
+	// Export actual sandbox responses for the separate official UI test package.
+	if dir := os.Getenv("MYGO_SUBSONIC_BROWSE_DIR"); dir != "" {
+		for name, page := range map[string]*music.Browse{"albums": albums, "artists": artists} {
+			data, err := json.Marshal(page)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, name+".json"), data, 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 }
 

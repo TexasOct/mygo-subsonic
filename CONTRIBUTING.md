@@ -11,7 +11,7 @@ npm run package
 npm run test:upstream
 ```
 
-Install the folder or ZIP from official MyGo Music's **Settings → Plugins → +**. Upstream tests clone a pristine pinned official revision and require its Go toolchain; `MYGO_MUSIC_DIR` optionally supplies a local clone source without testing its uncommitted changes. Set `MYGO_SUBSONIC_ZIP` to also exercise the official ZIP installer.
+Install the folder or ZIP from official MyGo Music's **Settings → Plugins → +**. Upstream tests clone a pristine pinned official revision and require its Go toolchain; `MYGO_MUSIC_DIR` optionally supplies a local clone source without testing its uncommitted changes. Set `MYGO_SUBSONIC_ZIP` to also exercise the official ZIP installer. `MYGO_MUSIC_REVISION` accepts a full pinned official commit hash for additional compatibility checks; release validation covers `799ec1bac6d3006ac1aa29e06be9e6ae92cf0028` and `93bf5a6202119305bc36fa7b1da71402c96e6879`.
 
 ## Code conventions
 
@@ -30,9 +30,9 @@ Install the folder or ZIP from official MyGo Music's **Settings → Plugins → 
 
 Node tests use local HTTP servers and the shipped bundle. Cover failures, opaque IDs, pagination, duplicates, pending requests, connection changes, ordered address attempts and credential handling.
 
-`test/upstream/subsonic_test.go.txt` is intentionally outside a Go module. The upstream script copies it into official MyGo's `internal/plugin`, where package-private loader APIs are available. It tests real MoeJS execution, no-build entrypoint constraints and ZIP installation.
+The `test/upstream/*.go.txt` fixtures are intentionally outside a Go module. The upstream script copies them into official MyGo's `internal/plugin` and `internal/app`, where package-private APIs are available. The first fixture tests real MoeJS execution, no-build entrypoint constraints and ZIP installation; the second renders actual plugin Browse responses and checks virtualization, compact continuation, narrow/desktop widths and light/dark themes. Set `MM_FRAMES` to an existing output directory to save UI screenshots. Only tests are added to the temporary checkout; no host implementation is modified.
 
-Host UI work is paused and outside this release. No host patch or second protocol implementation belongs in this repository. Any future upstream submission requires separate confirmation after the usable plugin release.
+Host feature/UI implementation work is paused and outside this release. No host patch or second protocol implementation belongs in this repository. Any future upstream submission requires separate confirmation after the usable plugin release.
 
 ## Release checklist
 

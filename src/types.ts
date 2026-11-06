@@ -119,9 +119,8 @@ export interface Section {
   albums?: Album[];
   artists?: Artist[];
   morePage?: string;
-  links?: { title: string; page: string }[];
 }
-export interface Browse { title: string; sections: Section[] }
+export interface Browse { title: string; subtitle?: string; sections: Section[] }
 export interface SearchResult { tracks?: Track[]; albums?: Album[]; artists?: Artist[]; playlists?: Playlist[]; more: boolean }
 export interface Stream { url: string; type: "mp3" | "flac" | "ogg"; quality: "standard" | "high" | "lossless"; bitRate?: number; size?: number }
 export interface Lyrics { lrc?: string; lines?: { start: number; text: string }[] }

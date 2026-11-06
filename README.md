@@ -8,10 +8,10 @@
 
 ## 安装
 
-需要 MyGo Music **0.1.13+**，服务器需支持 Subsonic API **1.16.1** 及所用接口。插件契约在官方提交 [`799ec1b`](https://github.com/egoist/mygo-music/commit/799ec1bac6d3006ac1aa29e06be9e6ae92cf0028) 的真实运行时中测试。
+需要 MyGo Music **0.1.13+**，服务器需支持 Subsonic API **1.16.1** 及所用接口。插件契约与浏览界面在未修改的官方提交 [`799ec1b`](https://github.com/egoist/mygo-music/commit/799ec1bac6d3006ac1aa29e06be9e6ae92cf0028)（0.1.13）和 [`93bf5a6`](https://github.com/egoist/mygo-music/commit/93bf5a6202119305bc36fa7b1da71402c96e6879)（0.1.18）中测试。
 
 - [一键安装](mygo-music://install-plugin?repo=TexasOct/mygo-subsonic)，或在 **设置 → 插件 → +** 中粘贴 `https://github.com/TexasOct/mygo-subsonic`。
-- 或从 [Releases](https://github.com/TexasOct/mygo-subsonic/releases) 下载 `mygo-subsonic-0.1.0.zip`，安装本地 ZIP。
+- 或从 [Releases](https://github.com/TexasOct/mygo-subsonic/releases) 下载 `mygo-subsonic-0.1.1.zip`，安装本地 ZIP。
 - 本地开发可直接安装本项目文件夹；手动复制请保留 `plugin.json`、`index.js`、`locales/` 的相对位置。
 
 安装后填写插件设置，切换到 Subsonic 音源，再点击登录。
@@ -70,7 +70,13 @@ http://192.168.1.10:4533, https://music.example.com/navidrome
 | 歌词 | `getLyrics`；OpenSubsonic 优先尝试 `getLyricsBySongId` |
 | 可选播放记录 | `scrobble` |
 
-每页 50 项。没有分页接口的歌手索引、收藏、歌单在客户端分页，大库有相应加载开销。时长与歌词时间映射为 MyGo 使用的毫秒。
+### 浏览与翻页
+
+- **专辑列表**：每批 200 项，标题下显示当前条目范围；有后续内容时，在列表末尾通过宿主原生的紧凑“下一页 / 查看全部”入口导航，不再显示成封面卡片。
+- **歌手索引**：`getArtists` 本来就返回完整索引，现在直接交给宿主的虚拟网格滚动，不再人为拆成 50 项一页。
+- **搜索、喜欢的歌曲、收藏专辑**：每批 50 项，由宿主在接近列表底部时自动续载。
+
+宿主按可见行渲染网格，但 `browse()` 没有滚动追加远程页面的接口，所以专辑仍需显式续页，不是无限滚动加载。没有分页接口的歌手索引、收藏和歌单仍需完整获取，大库有相应加载开销。时长与歌词时间映射为 MyGo 使用的毫秒。
 
 ### 音质与限制
 
@@ -94,7 +100,9 @@ npm run test:upstream
 # 可选：以本地仓库作为克隆源，仍检出干净的官方固定提交
 MYGO_MUSIC_DIR=/path/to/mygo-music npm run test:upstream
 # 同时测试官方 ZIP 安装器
-MYGO_SUBSONIC_ZIP="$PWD/dist/mygo-subsonic-0.1.0.zip" npm run test:upstream
+MYGO_SUBSONIC_ZIP="$PWD/dist/mygo-subsonic-0.1.1.zip" npm run test:upstream
+# 验证另一官方固定提交；也会用真实插件响应检查宿主虚拟列表与续页按钮
+MYGO_MUSIC_REVISION=93bf5a6202119305bc36fa7b1da71402c96e6879 npm run test:upstream
 ```
 
 `src/index.ts` 只公开上游能力；地址解析、配置、鉴权、路由、HTTP、模型映射和业务功能分模块维护。不要手改生成的根目录 `index.js`。

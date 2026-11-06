@@ -6,7 +6,10 @@ import { array, toAlbum, toArtist, toPlaylist, toTrack } from "./mappers.js";
 import { folder, identifier, offsetOf, pageOf, PAGE_SIZE } from "./paging.js";
 
 const ALBUM_TYPES = new Set(["newest", "recent", "frequent", "alphabeticalByName", "alphabeticalByArtist"]);
-async function albumList(config: Configuration, type: string, offset = 0, size = PAGE_SIZE + 1): Promise<SubsonicAlbum[]> {
+// Browse grids are virtualized by the host, but cannot append remote pages.
+// Larger bounded batches reduce navigation without loading the whole library.
+const ALBUM_PAGE_SIZE = 200;
+async function albumList(config: Configuration, type: string, offset = 0, size = ALBUM_PAGE_SIZE + 1): Promise<SubsonicAlbum[]> {
   const response = await request(config, "getAlbumList2", { type, size, offset, ...folder(config) });
   return array(response.albumList2?.album);
 }
@@ -32,18 +35,21 @@ export async function browse({ page }: { page: string }): Promise<Browse> {
   if (parts[0] === "albums" && parts.length === 3 && parts[1] && ALBUM_TYPES.has(parts[1])) {
     const offset = offsetOf(Number(parts[2]));
     const items = await albumList(config, parts[1], offset);
-    const sections: Section[] = [{ albums: items.slice(0, PAGE_SIZE).map((item) => toAlbum(config, item)) }];
-    if (items.length > PAGE_SIZE) sections.push({ links: [{ title: t("Next page"), page: `albums:${parts[1]}:${offset + PAGE_SIZE}` }] });
-    return { title: t("Albums"), sections };
+    const visible = items.slice(0, ALBUM_PAGE_SIZE);
+    const sections: Section[] = [{ albums: visible.map((item) => toAlbum(config, item)) }];
+    // MorePage renders the host's compact section action. Links render cover
+    // cards and must not be used as pagination controls.
+    if (items.length > ALBUM_PAGE_SIZE) sections.push({ title: t("Next page"), morePage: `albums:${parts[1]}:${offset + visible.length}` });
+    return { title: t("Albums"), subtitle: visible.length ? `${offset + 1}–${offset + visible.length}` : "", sections };
   }
   if (parts[0] === "artists" && parts.length === 2) {
     const offset = offsetOf(Number(parts[1]));
     const response = await request(config, "getArtists", folder(config));
     const items = array(response.artists?.index).flatMap((index) => array(index.artist));
-    const result = pageOf(items, offset);
-    const sections: Section[] = [{ artists: result.items.map((item) => toArtist(config, item)) }];
-    if (result.more) sections.push({ links: [{ title: t("Next page"), page: `artists:${offset + PAGE_SIZE}` }] });
-    return { title: t("Artists"), sections };
+    // getArtists already returns the whole index. Let the host virtualize it
+    // rather than making users navigate artificial client-side pages.
+    // Nonzero offsets keep previously opened continuation links usable.
+    return { title: t("Artists"), sections: [{ artists: items.slice(offset).map((item) => toArtist(config, item)) }] };
   }
   throw fail("unavailable", t("This page does not exist."));
 }
