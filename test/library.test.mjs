@@ -42,8 +42,8 @@ test("album and artist pages map release dates, images and multi-artist credits"
   assert.equal((await f.plugin.artist({ id: "a" })).albums[0].released, "2024");
 });
 
-// Album continuation is a native section action, never an album-sized link card.
-test("album browsing exposes compact continuation without losing the lookahead item", async (t) => {
+// Normal libraries stay in one scrollable grid, including older offset links.
+test("album browsing collects the library without artificial page breaks", async (t) => {
   const albums = Array.from({ length: 401 }, (_, i) => ({ id: `al${i}`, name: `Album ${i}` }));
   const f = await fixture(t, { handler: ({ params }) => {
     const offset = Number(params.get("offset"));
@@ -52,42 +52,36 @@ test("album browsing exposes compact continuation without losing the lookahead i
   } });
   await f.plugin.signIn();
   const first = await f.plugin.browse({ page: "albums:newest:0" });
-  assert.equal(first.sections[0].albums.length, 200);
-  assert.equal(first.subtitle, "1–200");
-  assert.equal(first.sections[1].morePage, "albums:newest:200");
-  assert.ok(first.sections[1].title);
-  assert.ok(first.sections.every((section) => !section.links?.length));
-  assert.equal(f.calls.at(-1).params.get("size"), "201");
-  const second = await f.plugin.browse({ page: first.sections[1].morePage });
-  assert.equal(second.sections[0].albums[0].id, "al200");
-  assert.equal(second.sections[1].morePage, "albums:newest:400");
-  const last = await f.plugin.browse({ page: second.sections[1].morePage });
-  assert.deepEqual(last.sections[0].albums.map((item) => item.id), ["al400"]);
-  assert.equal(last.sections.length, 1);
-  assert.equal(last.subtitle, "401–401");
+  assert.equal(first.sections[0].albums.length, 401);
+  assert.equal(first.sections.length, 1);
+  assert.equal(first.subtitle, "401 albums");
+  assert.ok(first.sections.every((section) => !section.links?.length && !section.morePage));
+  assert.equal(f.calls.at(-1).params.get("size"), "500");
   // Existing saved links with the former 50-item offset remain valid.
   const legacy = await f.plugin.browse({ page: "albums:newest:50" });
   assert.equal(legacy.sections[0].albums[0].id, "al50");
-  assert.equal(legacy.sections[1].morePage, "albums:newest:250");
+  assert.equal(legacy.sections.length, 1);
+  assert.equal(legacy.sections[0].albums.length, 351);
   await assert.rejects(f.plugin.browse({ page: "albums:unknown:0" }), { code: "unavailable" });
   await assert.rejects(f.plugin.browse({ page: "artists:-1" }), { code: "unavailable" });
 });
 
-// Empty and exactly-full batches never advertise a nonexistent next page.
+// Empty and exactly-full libraries never advertise a nonexistent next page.
 test("album continuation stops correctly on empty and exact batch boundaries", async (t) => {
   let albums = [];
   const f = await fixture(t, { handler: ({ params }) => ({ albumList2: { album: albums.slice(Number(params.get("offset")), Number(params.get("offset")) + Number(params.get("size"))) } }) });
   await f.plugin.signIn();
   const empty = await f.plugin.browse({ page: "albums:alphabeticalByName:0" });
   assert.deepEqual(empty.sections, [{ albums: [] }]);
-  assert.equal(empty.subtitle, "");
-  albums = Array.from({ length: 200 }, (_, i) => ({ id: `al${i}`, name: `Album ${i}` }));
+  assert.equal(empty.subtitle, "0 albums");
+  albums = Array.from({ length: 500 }, (_, i) => ({ id: `al${i}`, name: `Album ${i}` }));
   const exact = await f.plugin.browse({ page: "albums:alphabeticalByName:0" });
   assert.equal(exact.sections.length, 1);
-  assert.equal(exact.sections[0].albums.at(-1).id, "al199");
-  albums.push({ id: "al200", name: "Album 200" });
+  assert.equal(exact.sections[0].albums.at(-1).id, "al499");
+  albums.push({ id: "al500", name: "Album 500" });
   const next = await f.plugin.browse({ page: "albums:alphabeticalByName:0" });
-  assert.equal(next.sections[1].morePage, "albums:alphabeticalByName:200");
+  assert.equal(next.sections.length, 1);
+  assert.equal(next.sections[0].albums.at(-1).id, "al500");
   const before = f.calls.length;
   await assert.rejects(f.plugin.browse({ page: "albums:newest:-1" }), { code: "unavailable" });
   assert.equal(f.calls.length, before);

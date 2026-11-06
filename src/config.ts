@@ -12,9 +12,9 @@ export function configuration(): Configuration {
   const username = host.setting("username").trim();
   // Do not trim a password: leading and trailing spaces are significant.
   const password = host.setting("password");
-  if (!urls.length || !username || !password) throw fail("setup", t("Set the server URL, username and password in the plugin settings."));
+  if (!urls.length || !username || !password) throw fail("setup", t("Server address, username or password is missing."));
   const authMode = host.setting("authMode").trim() || "token";
-  if (authMode !== "token" && authMode !== "legacy") throw fail("setup", t("Authentication mode must be token or legacy."));
+  if (authMode !== "token" && authMode !== "legacy") throw fail("setup", t("Sign-in method must be blank, token or legacy."));
   return {
     urls, epoch, username, password, authMode,
     folder: host.setting("musicFolderId").trim(),
@@ -29,13 +29,13 @@ export function connectionKey(config: Configuration): string {
 
 export function signedConfiguration(): Configuration {
   const config = configuration();
-  if (host.storage.get<Session>(SESSION)?.key !== connectionKey(config)) throw fail("signIn", t("Sign in to your Subsonic server."));
+  if (host.storage.get<Session>(SESSION)?.key !== connectionKey(config)) throw fail("signIn", t("Sign in to Subsonic to open your music library."));
   return { ...config, requireSession: true };
 }
 
 export function assertCurrent(config: Configuration): void {
-  if (config.epoch !== epoch || connectionKey(configuration()) !== connectionKey(config)) throw fail("signIn", t("Connection settings changed. Sign in again."));
-  if (config.requireSession && host.storage.get<Session>(SESSION)?.key !== connectionKey(config)) throw fail("signIn", t("Sign in to your Subsonic server."));
+  if (config.epoch !== epoch || connectionKey(configuration()) !== connectionKey(config)) throw fail("signIn", t("Your connection settings changed. Sign in again to use them."));
+  if (config.requireSession && host.storage.get<Session>(SESSION)?.key !== connectionKey(config)) throw fail("signIn", t("Sign in to Subsonic to open your music library."));
 }
 
 export function authentication(config: Configuration): Parameters {

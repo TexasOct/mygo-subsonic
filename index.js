@@ -16,19 +16,19 @@ var fail = (code, message) => new PluginError(code, message);
 function apiFailure(error) {
   const code = Number(error?.code ?? 0);
   const messages = {
-    10: "The server rejected a required request parameter.",
-    20: "The server requires a newer Subsonic client API.",
-    30: "The server must support Subsonic API 1.16.1 or newer.",
-    40: "The server rejected the username or password.",
-    41: "This account requires legacy authentication. Change the authentication mode in settings.",
-    50: "This account does not have permission for this operation.",
+    10: "The server could not understand this request. Check that it supports the required Subsonic feature.",
+    20: "This server requires a newer Subsonic API version than this plugin uses.",
+    30: "This server's Subsonic API is too old. Version 1.16.1 or newer is required.",
+    40: "Sign-in failed. Check your username and password.",
+    41: "This server requires password sign-in. Set Sign-in method to legacy in the plugin settings.",
+    50: "Your account is not allowed to do this. Ask your server administrator for access.",
     60: "The server requires an active Subsonic Premium subscription.",
-    70: "The requested item was not found on the server."
+    70: "This item is no longer available on the server. Reload the library."
   };
   let category = "server";
   if ([40, 41].includes(code)) category = "signIn";
   else if (code === 70) category = "unavailable";
-  return new PluginError(category, t(messages[code] || "The Subsonic server could not complete the request."), code);
+  return new PluginError(category, t(messages[code] || "The server could not complete this action. Try again; if it keeps failing, check the server logs."), code);
 }
 
 // src/addresses.ts
@@ -37,17 +37,17 @@ function baseURL(address) {
   try {
     url = new URL(address);
   } catch {
-    throw fail("setup", t("The server URL must be an absolute HTTP or HTTPS URL."));
+    throw fail("setup", t("Enter a full server address starting with http:// or https://."));
   }
   if (!["https:", "http:"].includes(url.protocol) || !url.hostname || url.username || url.password || url.search || url.hash) {
-    throw fail("setup", t("Use an HTTP or HTTPS base URL without credentials, query parameters or a fragment."));
+    throw fail("setup", t("Use an http:// or https:// server address without a username, password, ?query or #fragment."));
   }
   return url.href.replace(/\/+$/, "").replace(/\/rest$/i, "");
 }
 function serverAddresses(value) {
   if (!value.trim()) return [];
   const entries = value.split(/[,\r\n]+/).map((entry) => entry.trim()).filter(Boolean);
-  if (!entries.length || entries.length > 5) throw fail("setup", t("Enter one to five server addresses, separated by commas or newlines."));
+  if (!entries.length || entries.length > 5) throw fail("setup", t("Enter 1\u20135 addresses for the same server, separated by commas or newlines."));
   return [...new Set(entries.map(baseURL))];
 }
 
@@ -62,9 +62,9 @@ function configuration() {
   const urls = serverAddresses(host.setting("serverUrl"));
   const username = host.setting("username").trim();
   const password = host.setting("password");
-  if (!urls.length || !username || !password) throw fail("setup", t("Set the server URL, username and password in the plugin settings."));
+  if (!urls.length || !username || !password) throw fail("setup", t("Server address, username or password is missing."));
   const authMode = host.setting("authMode").trim() || "token";
-  if (authMode !== "token" && authMode !== "legacy") throw fail("setup", t("Authentication mode must be token or legacy."));
+  if (authMode !== "token" && authMode !== "legacy") throw fail("setup", t("Sign-in method must be blank, token or legacy."));
   return {
     urls,
     epoch,
@@ -80,12 +80,12 @@ function connectionKey(config) {
 }
 function signedConfiguration() {
   const config = configuration();
-  if (host.storage.get(SESSION)?.key !== connectionKey(config)) throw fail("signIn", t("Sign in to your Subsonic server."));
+  if (host.storage.get(SESSION)?.key !== connectionKey(config)) throw fail("signIn", t("Sign in to Subsonic to open your music library."));
   return { ...config, requireSession: true };
 }
 function assertCurrent(config) {
-  if (config.epoch !== epoch || connectionKey(configuration()) !== connectionKey(config)) throw fail("signIn", t("Connection settings changed. Sign in again."));
-  if (config.requireSession && host.storage.get(SESSION)?.key !== connectionKey(config)) throw fail("signIn", t("Sign in to your Subsonic server."));
+  if (config.epoch !== epoch || connectionKey(configuration()) !== connectionKey(config)) throw fail("signIn", t("Your connection settings changed. Sign in again to use them."));
+  if (config.requireSession && host.storage.get(SESSION)?.key !== connectionKey(config)) throw fail("signIn", t("Sign in to Subsonic to open your music library."));
 }
 function authentication(config) {
   if (config.authMode === "legacy") {
@@ -110,7 +110,7 @@ function resetRoute() {
 function currentBase(config) {
   assertCurrent(config);
   const base = active?.key === routeKey(config) ? active.base : void 0;
-  if (!base) throw fail("network", t("No reachable server address. Sign in again to select an address."));
+  if (!base) throw fail("network", t("No server address is connected. Check your addresses and sign in again."));
   return base;
 }
 async function select(config, send2, excluded = /* @__PURE__ */ new Set()) {
@@ -132,7 +132,7 @@ async function select(config, send2, excluded = /* @__PURE__ */ new Set()) {
       last = error;
     }
   }
-  throw last ?? fail("network", t("No reachable server address. Sign in again to select an address."));
+  throw last ?? fail("network", t("No server address is connected. Check your addresses and sign in again."));
 }
 async function route(config, send2, excluded = /* @__PURE__ */ new Set(), refresh = false) {
   const key = routeKey(config);
@@ -148,8 +148,8 @@ async function route(config, send2, excluded = /* @__PURE__ */ new Set(), refres
     if (pending?.promise === promise) pending = void 0;
   }
 }
-async function routedRequest(config, method, values, send2, refresh = false) {
-  let selected = await route(config, send2, /* @__PURE__ */ new Set(), refresh);
+async function routedRequest(config, method, values, transport, refresh = false) {
+  let selected = await route(config, transport.probe, /* @__PURE__ */ new Set(), refresh);
   if (method === "ping") return { status: "ok" };
   const tried = /* @__PURE__ */ new Set();
   while (true) {
@@ -157,18 +157,15 @@ async function routedRequest(config, method, values, send2, refresh = false) {
     tried.add(selected.base);
     assertCurrent(config);
     try {
-      const response = await send2(config, selected.base, method, values, READS.has(method) ? Math.max(2500, Math.floor(15e3 / config.urls.length)) : 2e4);
+      const response = await transport.send(config, selected.base, method, values, READS.has(method) ? Math.max(2500, Math.floor(15e3 / config.urls.length)) : 2e4);
       assertCurrent(config);
       return response;
     } catch (error) {
       if (retryable(error) && active?.base === selected.base && active.key === selected.key) active = void 0;
       if (!READS.has(method) || !retryable(error) || tried.size >= config.urls.length) throw error;
-      selected = await route(config, send2, tried);
+      selected = await route(config, transport.probe, tried);
     }
   }
-}
-async function mediaBase(config, send2) {
-  await route(config, send2, /* @__PURE__ */ new Set(), true);
 }
 
 // src/client.ts
@@ -183,16 +180,36 @@ function parameters(config, values = {}) {
 function mediaURL(config, method, values) {
   return `${currentBase(config)}/rest/${method}.view?${parameters(config, values)}`;
 }
-function request(config, method, values = {}, options = {}) {
-  const deadline = Date.now() + 25e3;
-  return routedRequest(config, method, values, (current, base, operation, params, timeout2) => {
-    const remaining = deadline - Date.now();
-    if (remaining <= 0) throw fail("network", t("Cannot reach the Subsonic server. Check its URL, connection and TLS certificate."));
-    return send(current, base, operation, params, Math.min(timeout2, remaining));
-  }, options.refreshRoute);
+async function request(config, method, values = {}, options = {}) {
+  const deadline = Math.min(Date.now() + 25e3, options.deadline ?? Infinity);
+  const remaining = deadline - Date.now();
+  const expired = () => fail("network", t("Could not connect to Subsonic. Check the server address, network and HTTPS certificate."));
+  if (remaining <= 0) throw expired();
+  let timer;
+  let timedOut = false;
+  try {
+    return await Promise.race([
+      routedRequest(config, method, values, {
+        probe: send,
+        send: (current, base, operation, params, timeout2) => {
+          const left = deadline - Date.now();
+          if (timedOut || left <= 0) throw expired();
+          return send(current, base, operation, params, Math.min(timeout2, left));
+        }
+      }, options.refreshRoute),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          timedOut = true;
+          reject(expired());
+        }, remaining);
+      })
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 async function prepareMedia(config) {
-  await mediaBase(config, send);
+  await request(config, "ping", {}, { refreshRoute: true });
 }
 async function send(config, base, method, values, timeout2) {
   const controller = new AbortController();
@@ -207,39 +224,65 @@ async function send(config, base, method, values, timeout2) {
     });
     if (!response.ok) {
       const denied = [401, 403].includes(response.status);
-      throw new PluginError(denied ? "signIn" : "network", denied ? t("The server denied access. Check your credentials and reverse proxy.") : `${t("Subsonic HTTP error")}: ${response.status}`, void 0, response.status);
+      throw new PluginError(denied ? "signIn" : "network", denied ? t("The server refused access. Check your sign-in details and any reverse proxy access rules.") : `${t("The server returned HTTP status")}: ${response.status}`, void 0, response.status);
     }
     const text = await response.text();
     let json;
     try {
       json = JSON.parse(text);
     } catch {
-      throw fail("server", t("The server did not return Subsonic JSON. Check the base URL and reverse proxy."));
+      throw fail("server", t("This address did not return Subsonic data. Check the server address and reverse proxy settings."));
     }
     const envelope = json?.["subsonic-response"];
-    if (!envelope || !["ok", "failed"].includes(envelope.status)) throw fail("server", t("The server did not return a valid Subsonic response."));
+    if (!envelope || !["ok", "failed"].includes(envelope.status)) throw fail("server", t("The server returned incomplete Subsonic data. Check its API support."));
     if (envelope.status === "failed") throw apiFailure(envelope.error);
     return envelope;
   } catch (error) {
     if (error instanceof PluginError) throw error;
-    throw fail("network", t("Cannot reach the Subsonic server. Check its URL, connection and TLS certificate."));
+    throw fail("network", t("Could not connect to Subsonic. Check the server address, network and HTTPS certificate."));
   } finally {
     clearTimeout(timer);
   }
 }
 
 // src/auth.ts
+function guidedFailure(error, text) {
+  const guidance = t(text);
+  host.signInPrompt({ text: guidance });
+  if (error instanceof PluginError) return new PluginError(error.code, `${error.message}
+
+${guidance}`, error.subsonicCode, error.httpStatus);
+  return new PluginError("server", guidance);
+}
 async function signIn() {
   invalidateConfiguration();
   resetRoute();
-  const config = configuration();
+  let config;
+  try {
+    config = configuration();
+  } catch (error) {
+    throw guidedFailure(error, "Close this window, then open Settings \u2192 Plugins \u2192 Subsonic. Enter your server address, username and password, then sign in again.");
+  }
   const key = connectionKey(config);
   host.storage.remove(SESSION);
-  await request(config, "ping");
-  assertCurrent(config);
-  const account2 = { id: config.username, name: config.username };
-  host.storage.set(SESSION, { key, account: account2 });
-  return account2;
+  host.signInPrompt({ text: t("Connecting to Subsonic\u2026\nTo change your connection, close this window and open Settings \u2192 Plugins \u2192 Subsonic.") });
+  try {
+    await request(config, "ping");
+    assertCurrent(config);
+    const account2 = { id: config.username, name: config.username };
+    host.storage.set(SESSION, { key, account: account2 });
+    return account2;
+  } catch (error) {
+    try {
+      assertCurrent(config);
+    } catch {
+      throw error;
+    }
+    let text = "Close this window and check your connection in Settings \u2192 Plugins \u2192 Subsonic. If it is correct, ask your server administrator to check Subsonic access.";
+    if (error instanceof PluginError && error.code === "signIn") text = "Close this window and check Username, Password and Sign-in method in Settings \u2192 Plugins \u2192 Subsonic. Then sign in again.";
+    else if (error instanceof PluginError && error.code === "network") text = "Check your network connection. To edit Server addresses, close this window and open Settings \u2192 Plugins \u2192 Subsonic. Then sign in again.";
+    throw guidedFailure(error, text);
+  }
 }
 function signOut() {
   invalidateConfiguration();
@@ -314,21 +357,77 @@ function toPlaylistDetails(config, item) {
 var PAGE_SIZE = 50;
 var folder = (config) => config.folder ? { musicFolderId: config.folder } : {};
 function offsetOf(value = 0) {
-  if (!Number.isSafeInteger(value) || value < 0) throw fail("unavailable", t("Invalid page offset."));
+  if (!Number.isSafeInteger(value) || value < 0) throw fail("unavailable", t("This list position is invalid. Open the list again."));
   return value;
 }
 function identifier(value) {
-  if (value === void 0 || value === null || String(value) === "") throw fail("unavailable", t("An item ID is required."));
+  if (value === void 0 || value === null || String(value) === "") throw fail("unavailable", t("This item has no server ID. Reload the library."));
   return String(value);
 }
 function pageOf(items, offset = 0) {
   return { items: items.slice(offset, offset + PAGE_SIZE), more: items.length > offset + PAGE_SIZE };
 }
 
+// src/album-browse.ts
+var BATCH_SIZE = 500;
+var MAX_ALBUMS = 5e3;
+var LOAD_BUDGET_MS = 8e3;
+async function browseAlbums(config, type, offset) {
+  const deadline = Date.now() + LOAD_BUDGET_MS;
+  const albums = [];
+  const seen = /* @__PURE__ */ new Set();
+  let next = offset;
+  let more = false;
+  while (true) {
+    if (Date.now() >= deadline) {
+      more = true;
+      break;
+    }
+    const size = albums.length >= MAX_ALBUMS ? 1 : Math.min(BATCH_SIZE, MAX_ALBUMS - albums.length);
+    let batch;
+    try {
+      const response = await request(config, "getAlbumList2", { type, size, offset: next, ...folder(config) }, { deadline });
+      const list = response.albumList2;
+      if (!list || typeof list !== "object" || Array.isArray(list) || list.album !== void 0 && !Array.isArray(list.album)) {
+        throw fail("server", t("The server returned incomplete Subsonic data. Check its API support."));
+      }
+      batch = array(list.album);
+      if (batch.length > size) throw fail("server", t("The server returned more albums than requested. Check its Subsonic paging support."));
+    } catch (error) {
+      assertCurrent(config);
+      if (!albums.length || !(error instanceof PluginError) || error.code !== "network") throw error;
+      more = true;
+      break;
+    }
+    if (albums.length >= MAX_ALBUMS) {
+      more = batch.length > 0;
+      break;
+    }
+    if (!batch.length) break;
+    if (batch.some((item) => !item.id)) throw fail("server", t("The server returned an album without an ID. Check its Subsonic API support."));
+    const unseen = batch.filter((item) => !seen.has(String(item.id)));
+    if (!unseen.length) throw fail("server", t("The server keeps returning the same albums. Check its Subsonic paging support."));
+    for (const item of unseen) {
+      const id = String(item.id);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      albums.push(toAlbum(config, item));
+    }
+    next += batch.length;
+    if (batch.length < size) break;
+  }
+  assertCurrent(config);
+  const sections = [{ albums }];
+  if (more) sections.push({ title: t("Remaining albums"), morePage: `albums:${type}:${next}` });
+  let subtitle = t("{count} albums").replace("{count}", String(albums.length));
+  if (more) subtitle = t("{count} albums loaded").replace("{count}", String(albums.length));
+  else if (offset && albums.length) subtitle = t("Albums {start}\u2013{end}").replace("{start}", String(offset + 1)).replace("{end}", String(next));
+  return { title: t("Albums"), subtitle, sections };
+}
+
 // src/library.ts
 var ALBUM_TYPES = /* @__PURE__ */ new Set(["newest", "recent", "frequent", "alphabeticalByName", "alphabeticalByArtist"]);
-var ALBUM_PAGE_SIZE = 200;
-async function albumList(config, type, offset = 0, size = ALBUM_PAGE_SIZE + 1) {
+async function albumList(config, type, offset = 0, size = 12) {
   const response = await request(config, "getAlbumList2", { type, size, offset, ...folder(config) });
   return array(response.albumList2?.album);
 }
@@ -344,7 +443,7 @@ async function home() {
     sections: [
       { title: t("Recently added"), albums: newest.map((item) => toAlbum(config, item)), morePage: "albums:newest:0" },
       { title: t("Recently played albums"), albums: recent.map((item) => toAlbum(config, item)), morePage: "albums:recent:0" },
-      { title: t("Rediscover"), albums: random.map((item) => toAlbum(config, item)) }
+      { title: t("Random picks"), albums: random.map((item) => toAlbum(config, item)) }
     ]
   };
 }
@@ -353,11 +452,7 @@ async function browse({ page }) {
   const parts = String(page).split(":");
   if (parts[0] === "albums" && parts.length === 3 && parts[1] && ALBUM_TYPES.has(parts[1])) {
     const offset = offsetOf(Number(parts[2]));
-    const items = await albumList(config, parts[1], offset);
-    const visible = items.slice(0, ALBUM_PAGE_SIZE);
-    const sections = [{ albums: visible.map((item) => toAlbum(config, item)) }];
-    if (items.length > ALBUM_PAGE_SIZE) sections.push({ title: t("Next page"), morePage: `albums:${parts[1]}:${offset + visible.length}` });
-    return { title: t("Albums"), subtitle: visible.length ? `${offset + 1}\u2013${offset + visible.length}` : "", sections };
+    return browseAlbums(config, parts[1], offset);
   }
   if (parts[0] === "artists" && parts.length === 2) {
     const offset = offsetOf(Number(parts[1]));
@@ -365,7 +460,7 @@ async function browse({ page }) {
     const items = array(response.artists?.index).flatMap((index) => array(index.artist));
     return { title: t("Artists"), sections: [{ artists: items.slice(offset).map((item) => toArtist(config, item)) }] };
   }
-  throw fail("unavailable", t("This page does not exist."));
+  throw fail("unavailable", t("This library page is not available. Open Albums or Artists from the sidebar."));
 }
 async function search({ query, kind, offset = 0 }) {
   const config = signedConfiguration();
@@ -405,13 +500,13 @@ async function search({ query, kind, offset = 0 }) {
 async function album({ id }) {
   const config = signedConfiguration();
   const response = await request(config, "getAlbum", { id: identifier(id) });
-  if (!response.album) throw fail("unavailable", t("The requested item was not found on the server."));
+  if (!response.album) throw fail("unavailable", t("This album is no longer available on the server. Reload the library."));
   return { album: toAlbum(config, response.album), tracks: array(response.album.song).map((item) => toTrack(config, item)) };
 }
 async function artist({ id }) {
   const config = signedConfiguration();
   const response = await request(config, "getArtist", { id: identifier(id) });
-  if (!response.artist) throw fail("unavailable", t("The requested item was not found on the server."));
+  if (!response.artist) throw fail("unavailable", t("This artist is no longer available on the server. Reload the library."));
   return { artist: toArtist(config, response.artist), albums: array(response.artist.album).map((item) => toAlbum(config, item)), tracks: [] };
 }
 
@@ -459,14 +554,14 @@ async function playlists() {
 async function playlist({ id }) {
   const config = signedConfiguration();
   const response = await request(config, "getPlaylist", { id: identifier(id) });
-  if (!response.playlist) throw fail("unavailable", t("The requested item was not found on the server."));
+  if (!response.playlist) throw fail("unavailable", t("This playlist is no longer available on the server. Reload your playlists."));
   return toPlaylistDetails(config, response.playlist);
 }
 async function createPlaylist({ name }) {
   const config = signedConfiguration();
-  if (!name.trim()) throw fail("unavailable", t("A playlist name is required."));
+  if (!name.trim()) throw fail("unavailable", t("Enter a name for the playlist."));
   const response = await request(config, "createPlaylist", { name });
-  if (!response.playlist) throw fail("server", t("The server did not return the created playlist."));
+  if (!response.playlist) throw fail("server", t("The server did not return the new playlist. Reload your playlists before trying to create it again."));
   return toPlaylistDetails(config, response.playlist);
 }
 var edits = /* @__PURE__ */ new Map();
@@ -479,7 +574,7 @@ function editPlaylist(id, change, original = signedConfiguration()) {
   }).then(async () => {
     assertCurrent(original);
     const response = await request(original, "getPlaylist", { id });
-    if (!response.playlist || response.playlist.owner !== original.username) throw fail("unavailable", t("Only the playlist owner can edit it."));
+    if (!response.playlist || response.playlist.owner !== original.username) throw fail("unavailable", t("You can only edit playlists created by your account."));
     return change(original, response.playlist);
   });
   edits.set(lock, next);
@@ -490,7 +585,7 @@ function editPlaylist(id, change, original = signedConfiguration()) {
   return next;
 }
 function renamePlaylist({ id, name }) {
-  if (!name.trim()) throw fail("unavailable", t("A playlist name is required."));
+  if (!name.trim()) throw fail("unavailable", t("Enter a name for the playlist."));
   return editPlaylist(id, (config, item) => request(config, "updatePlaylist", { playlistId: item.id, name }));
 }
 function deletePlaylist({ id }) {
@@ -517,7 +612,7 @@ function removeFromPlaylist({ id, trackIds }) {
 function movePlaylistTrack({ id, from, to }) {
   return editPlaylist(id, async (config, item) => {
     const tracks = array(item.entry).map((track) => String(track.id));
-    if (![from, to].every((position) => Number.isInteger(position) && position >= 0 && position < tracks.length)) throw fail("unavailable", t("Invalid playlist position."));
+    if (![from, to].every((position) => Number.isInteger(position) && position >= 0 && position < tracks.length)) throw fail("unavailable", t("This track's position changed. Reload the playlist and try again."));
     if (from === to) return;
     const [moved] = tracks.splice(from, 1);
     if (moved === void 0) return;
@@ -533,7 +628,7 @@ async function stream({ id, quality = "high" }) {
   if (quality === "lossless") {
     const response = await request(config, "getSong", { id }, { refreshRoute: true });
     const song = response.song;
-    if (!song || song.isVideo) throw fail("unavailable", t("This item is not a playable audio track."));
+    if (!song || song.isVideo) throw fail("unavailable", t("This item is missing or is a video. Only audio tracks can be played."));
     const suffix = String(song.suffix || "").toLowerCase();
     const opus = String(song.contentType || "").toLowerCase().includes("opus");
     if ((suffix === "mp3" || suffix === "flac" || suffix === "ogg") && !opus) {
@@ -561,7 +656,7 @@ async function lyrics({ id }) {
   id = identifier(id);
   const songResponse = await request(config, "getSong", { id });
   const song = songResponse.song;
-  if (!song) throw fail("unavailable", t("The requested item was not found on the server."));
+  if (!song) throw fail("unavailable", t("This track is no longer available on the server. Reload the library."));
   if (songResponse.openSubsonic) {
     let response2;
     try {

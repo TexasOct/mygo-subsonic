@@ -13,14 +13,14 @@ export async function playlists() {
 export async function playlist({ id }: { id: string }) {
   const config = signedConfiguration();
   const response = await request(config, "getPlaylist", { id: identifier(id) });
-  if (!response.playlist) throw fail("unavailable", t("The requested item was not found on the server."));
+  if (!response.playlist) throw fail("unavailable", t("This playlist is no longer available on the server. Reload your playlists."));
   return toPlaylistDetails(config, response.playlist);
 }
 export async function createPlaylist({ name }: { name: string }) {
   const config = signedConfiguration();
-  if (!name.trim()) throw fail("unavailable", t("A playlist name is required."));
+  if (!name.trim()) throw fail("unavailable", t("Enter a name for the playlist."));
   const response = await request(config, "createPlaylist", { name });
-  if (!response.playlist) throw fail("server", t("The server did not return the created playlist."));
+  if (!response.playlist) throw fail("server", t("The server did not return the new playlist. Reload your playlists before trying to create it again."));
   return toPlaylistDetails(config, response.playlist);
 }
 
@@ -35,7 +35,7 @@ function editPlaylist(id: string, change: (config: Configuration, item: Subsonic
   const next = previous.catch(() => {}).then(async () => {
     assertCurrent(original);
     const response = await request(original, "getPlaylist", { id });
-    if (!response.playlist || response.playlist.owner !== original.username) throw fail("unavailable", t("Only the playlist owner can edit it."));
+    if (!response.playlist || response.playlist.owner !== original.username) throw fail("unavailable", t("You can only edit playlists created by your account."));
     return change(original, response.playlist);
   });
   edits.set(lock, next);
@@ -45,7 +45,7 @@ function editPlaylist(id: string, change: (config: Configuration, item: Subsonic
 }
 
 export function renamePlaylist({ id, name }: { id: string; name: string }) {
-  if (!name.trim()) throw fail("unavailable", t("A playlist name is required."));
+  if (!name.trim()) throw fail("unavailable", t("Enter a name for the playlist."));
   return editPlaylist(id, (config, item) => request(config, "updatePlaylist", { playlistId: item.id, name }));
 }
 export function deletePlaylist({ id }: { id: string }) {
@@ -74,7 +74,7 @@ export function removeFromPlaylist({ id, trackIds }: { id: string; trackIds: str
 export function movePlaylistTrack({ id, from, to }: { id: string; from: number; to: number }) {
   return editPlaylist(id, async (config, item) => {
     const tracks = array(item.entry).map((track) => String(track.id));
-    if (![from, to].every((position) => Number.isInteger(position) && position >= 0 && position < tracks.length)) throw fail("unavailable", t("Invalid playlist position."));
+    if (![from, to].every((position) => Number.isInteger(position) && position >= 0 && position < tracks.length)) throw fail("unavailable", t("This track's position changed. Reload the playlist and try again."));
     if (from === to) return;
     const [moved] = tracks.splice(from, 1);
     if (moved === undefined) return;

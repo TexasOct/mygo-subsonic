@@ -14,14 +14,15 @@ try {
   execFileSync("git", ["checkout", revision], { cwd: checkout, stdio: "inherit" });
   await cp("test/upstream/subsonic_test.go.txt", path.join(checkout, "internal/plugin/subsonic_external_test.go"));
   await cp("test/upstream/browse_ui_test.go.txt", path.join(checkout, "internal/app/subsonic_browse_external_test.go"));
+  await cp("test/upstream/sign_in_ui_test.go.txt", path.join(checkout, "internal/app/subsonic_sign_in_external_test.go"));
   const responses = await mkdtemp(path.join(temporary, "browse-"));
   const env = { ...process.env, MYGO_SUBSONIC_DIR: process.cwd(), MYGO_SUBSONIC_BROWSE_DIR: responses };
-  execFileSync("go", ["test", "./internal/plugin", "-run", "^TestSubsonic(Runtime|Addresses|Archive|Entrypoints|Browse)$", "-count=1", "-v"], {
+  execFileSync("go", ["test", "./internal/plugin", "-run", "^TestSubsonic(Runtime|Addresses|Archive|Entrypoints|Browse|SignInPrompts)$", "-count=1", "-v"], {
     cwd: checkout,
     stdio: "inherit",
     env,
   });
-  execFileSync("go", ["test", "./internal/app", "-run", "^TestSubsonicBrowseUI$", "-count=1", "-v"], {
+  execFileSync("go", ["test", "./internal/app", "-run", "^TestSubsonic(BrowseUI|SignInUI)$", "-count=1", "-v"], {
     cwd: checkout,
     stdio: "inherit",
     env,

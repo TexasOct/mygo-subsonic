@@ -1,0 +1,76 @@
+package app
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"testing"
+
+	"github.com/egoist/mygo/ui"
+	"mygo-music/internal/music"
+)
+
+// The official dialog prioritizes errors over prompts. Real plugin failures
+// must therefore keep their actionable settings path visible in both states.
+func TestSubsonicSignInUI(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(os.Getenv("MYGO_SUBSONIC_BROWSE_DIR"), "sign-in.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var states []struct {
+		Name   string
+		Prompt music.SignInPrompt
+		Error  string
+	}
+	if err := json.Unmarshal(data, &states); err != nil {
+		t.Fatal(err)
+	}
+	if len(states) != 4 {
+		t.Fatalf("missing sign-in states: %d", len(states))
+	}
+	for _, width := range []int{1200, 640} {
+		for _, dark := range []bool{false, true} {
+			for _, state := range states {
+				mode := "light"
+				if dark {
+					mode = "dark"
+				}
+				t.Run(state.Name+"-"+mode+"-"+strconv.Itoa(width), func(t *testing.T) {
+					a := newTestApp()
+					a.signIn = signInDialog{open: true, lib: a.library, waiting: state.Error == "", prompt: state.Prompt, err: state.Error}
+					tt := ui.NewTester(a.view, width, 800)
+					tt.SetDark(dark)
+					settled(tt)
+					text := state.Error
+					if text == "" {
+						text = state.Prompt.Text
+					}
+					if !strings.Contains(text, "Settings → Plugins → Subsonic") {
+						t.Fatal("missing settings path")
+					}
+					r, ok := tt.Find(text)
+					if !ok {
+						t.Fatal("plugin guidance is not rendered")
+					}
+					if r.W > 330 || r.Y < 0 || r.Y+r.H > 800 {
+						t.Fatalf("guidance overflows the dialog: %+v", r)
+					}
+					if _, ok := tt.Find("Cancel"); !ok {
+						t.Fatal("cannot close the guidance to edit settings")
+					}
+					if dir := os.Getenv("MM_FRAMES"); dir != "" {
+						saveFrame(t, dir, "sign-in-"+state.Name+"-"+mode+"-"+strconv.Itoa(width)+".png", tt.Image())
+					}
+					if err := tt.Click("Cancel"); err != nil {
+						t.Fatal(err)
+					}
+					if a.signIn.open {
+						t.Fatal("cancel did not close the dialog")
+					}
+				})
+			}
+		}
+	}
+}

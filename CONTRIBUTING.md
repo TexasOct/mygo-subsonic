@@ -30,7 +30,9 @@ Install the folder or ZIP from official MyGo Music's **Settings → Plugins → 
 
 Node tests use local HTTP servers and the shipped bundle. Cover failures, opaque IDs, pagination, duplicates, pending requests, connection changes, ordered address attempts and credential handling.
 
-The `test/upstream/*.go.txt` fixtures are intentionally outside a Go module. The upstream script copies them into official MyGo's `internal/plugin` and `internal/app`, where package-private APIs are available. The first fixture tests real MoeJS execution, no-build entrypoint constraints and ZIP installation; the second renders actual plugin Browse responses and checks virtualization, compact continuation, narrow/desktop widths and light/dark themes. Set `MM_FRAMES` to an existing output directory to save UI screenshots. Only tests are added to the temporary checkout; no host implementation is modified.
+The `test/upstream/*.go.txt` fixtures stay outside a Go module. The upstream script copies them into official MyGo's `internal/plugin` and `internal/app` to access package-private APIs. Tests cover real MoeJS execution, entrypoint constraints, ZIP installation, and UI rendering of actual plugin responses. UI checks cover full/bounded album lists, virtual rows, sign-in guidance, narrow/desktop widths and light/dark themes. Set `MM_FRAMES` to an existing output directory to save screenshots. Only test files are added; no host implementation is modified.
+
+Check every list entrypoint when changing browsing: all album sorts, home See All links, artists, all search kinds, liked tracks, saved albums, playlist lists and detail pages. Keep native automatic continuation where it exists. Album collection has one shared time/item budget; a concurrent route probe must not extend a caller's deadline. Do not describe all host grids as virtualized or add indefinite full-library loads.
 
 Host feature/UI implementation work is paused and outside this release. No host patch or second protocol implementation belongs in this repository. Any future upstream submission requires separate confirmation after the usable plugin release.
 

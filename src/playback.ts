@@ -10,7 +10,7 @@ export async function stream({ id, quality = "high" }: { id: string; quality?: s
   if (quality === "lossless") {
     const response = await request(config, "getSong", { id }, { refreshRoute: true });
     const song = response.song;
-    if (!song || song.isVideo) throw fail("unavailable", t("This item is not a playable audio track."));
+    if (!song || song.isVideo) throw fail("unavailable", t("This item is missing or is a video. Only audio tracks can be played."));
     const suffix = String(song.suffix || "").toLowerCase();
     // Ogg can carry Opus, which MyGo's Vorbis decoder cannot read.
     const opus = String(song.contentType || "").toLowerCase().includes("opus");

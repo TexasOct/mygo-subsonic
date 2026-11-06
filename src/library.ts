@@ -1,15 +1,15 @@
-import type { Browse, Configuration, SearchResult, Section, SubsonicAlbum } from "./types.js";
+import type { Browse, Configuration, SearchResult, SubsonicAlbum } from "./types.js";
 import { signedConfiguration } from "./config.js";
 import { request } from "./client.js";
 import { fail, t } from "./errors.js";
 import { array, toAlbum, toArtist, toPlaylist, toTrack } from "./mappers.js";
 import { folder, identifier, offsetOf, pageOf, PAGE_SIZE } from "./paging.js";
 
+import { browseAlbums } from "./album-browse.js";
+
 const ALBUM_TYPES = new Set(["newest", "recent", "frequent", "alphabeticalByName", "alphabeticalByArtist"]);
-// Browse grids are virtualized by the host, but cannot append remote pages.
-// Larger bounded batches reduce navigation without loading the whole library.
-const ALBUM_PAGE_SIZE = 200;
-async function albumList(config: Configuration, type: string, offset = 0, size = ALBUM_PAGE_SIZE + 1): Promise<SubsonicAlbum[]> {
+
+async function albumList(config: Configuration, type: string, offset = 0, size = 12): Promise<SubsonicAlbum[]> {
   const response = await request(config, "getAlbumList2", { type, size, offset, ...folder(config) });
   return array(response.albumList2?.album);
 }
@@ -24,7 +24,7 @@ export async function home(): Promise<Browse> {
     sections: [
       { title: t("Recently added"), albums: newest.map((item) => toAlbum(config, item)), morePage: "albums:newest:0" },
       { title: t("Recently played albums"), albums: recent.map((item) => toAlbum(config, item)), morePage: "albums:recent:0" },
-      { title: t("Rediscover"), albums: random.map((item) => toAlbum(config, item)) },
+      { title: t("Random picks"), albums: random.map((item) => toAlbum(config, item)) },
     ],
   };
 }
@@ -34,13 +34,7 @@ export async function browse({ page }: { page: string }): Promise<Browse> {
   const parts = String(page).split(":");
   if (parts[0] === "albums" && parts.length === 3 && parts[1] && ALBUM_TYPES.has(parts[1])) {
     const offset = offsetOf(Number(parts[2]));
-    const items = await albumList(config, parts[1], offset);
-    const visible = items.slice(0, ALBUM_PAGE_SIZE);
-    const sections: Section[] = [{ albums: visible.map((item) => toAlbum(config, item)) }];
-    // MorePage renders the host's compact section action. Links render cover
-    // cards and must not be used as pagination controls.
-    if (items.length > ALBUM_PAGE_SIZE) sections.push({ title: t("Next page"), morePage: `albums:${parts[1]}:${offset + visible.length}` });
-    return { title: t("Albums"), subtitle: visible.length ? `${offset + 1}–${offset + visible.length}` : "", sections };
+    return browseAlbums(config, parts[1], offset);
   }
   if (parts[0] === "artists" && parts.length === 2) {
     const offset = offsetOf(Number(parts[1]));
@@ -51,7 +45,7 @@ export async function browse({ page }: { page: string }): Promise<Browse> {
     // Nonzero offsets keep previously opened continuation links usable.
     return { title: t("Artists"), sections: [{ artists: items.slice(offset).map((item) => toArtist(config, item)) }] };
   }
-  throw fail("unavailable", t("This page does not exist."));
+  throw fail("unavailable", t("This library page is not available. Open Albums or Artists from the sidebar."));
 }
 
 export async function search({ query, kind, offset = 0 }: { query: string; kind: string; offset?: number }): Promise<SearchResult> {
@@ -87,14 +81,14 @@ export async function search({ query, kind, offset = 0 }: { query: string; kind:
 export async function album({ id }: { id: string }) {
   const config = signedConfiguration();
   const response = await request(config, "getAlbum", { id: identifier(id) });
-  if (!response.album) throw fail("unavailable", t("The requested item was not found on the server."));
+  if (!response.album) throw fail("unavailable", t("This album is no longer available on the server. Reload the library."));
   return { album: toAlbum(config, response.album), tracks: array(response.album.song).map((item) => toTrack(config, item)) };
 }
 
 export async function artist({ id }: { id: string }) {
   const config = signedConfiguration();
   const response = await request(config, "getArtist", { id: identifier(id) });
-  if (!response.artist) throw fail("unavailable", t("The requested item was not found on the server."));
+  if (!response.artist) throw fail("unavailable", t("This artist is no longer available on the server. Reload the library."));
   // Do not require the optional getTopSongs endpoint to open an artist page.
   return { artist: toArtist(config, response.artist), albums: array(response.artist.album).map((item) => toAlbum(config, item)), tracks: [] };
 }

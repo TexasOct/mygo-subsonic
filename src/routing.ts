@@ -15,7 +15,7 @@ export function resetRoute(): void { active = undefined; pending = undefined; }
 export function currentBase(config: Configuration): string {
   assertCurrent(config);
   const base = active?.key === routeKey(config) ? active.base : undefined;
-  if (!base) throw fail("network", t("No reachable server address. Sign in again to select an address."));
+  if (!base) throw fail("network", t("No server address is connected. Check your addresses and sign in again."));
   return base;
 }
 
@@ -38,7 +38,7 @@ async function select(config: Configuration, send: Send, excluded = new Set<stri
       last = error;
     }
   }
-  throw last ?? fail("network", t("No reachable server address. Sign in again to select an address."));
+  throw last ?? fail("network", t("No server address is connected. Check your addresses and sign in again."));
 }
 
 async function route(config: Configuration, send: Send, excluded = new Set<string>(), refresh = false): Promise<Route> {
@@ -55,8 +55,10 @@ async function route(config: Configuration, send: Send, excluded = new Set<strin
   finally { if (pending?.promise === promise) pending = undefined; }
 }
 
-export async function routedRequest(config: Configuration, method: string, values: Parameters, send: Send, refresh = false): Promise<SubsonicResponse> {
-  let selected = await route(config, send, new Set(), refresh);
+export async function routedRequest(config: Configuration, method: string, values: Parameters, transport: { send: Send; probe: Send }, refresh = false): Promise<SubsonicResponse> {
+  // Discovery belongs to all waiters, not to the first caller's shorter
+  // deadline. Each probe still has the endpoint timeout from select().
+  let selected = await route(config, transport.probe, new Set(), refresh);
   // route() already performed an authenticated ping when there was no cache.
   // A sign-in resets the cache first, and does not need a duplicate request.
   if (method === "ping") return { status: "ok" };
@@ -66,7 +68,7 @@ export async function routedRequest(config: Configuration, method: string, value
     tried.add(selected.base);
     assertCurrent(config);
     try {
-      const response = await send(config, selected.base, method, values, READS.has(method) ? Math.max(2500, Math.floor(15000 / config.urls.length)) : 20000);
+      const response = await transport.send(config, selected.base, method, values, READS.has(method) ? Math.max(2500, Math.floor(15000 / config.urls.length)) : 20000);
       assertCurrent(config);
       return response;
     } catch (error) {
@@ -74,11 +76,7 @@ export async function routedRequest(config: Configuration, method: string, value
       // A mutation might have committed before a connection failure. Never
       // replay it, even on another URL for the same server.
       if (!READS.has(method) || !retryable(error) || tried.size >= config.urls.length) throw error;
-      selected = await route(config, send, tried);
+      selected = await route(config, transport.probe, tried);
     }
   }
 }
-
-// The host cannot report a failed audio download to this module. Revalidate
-// on each new playback URL, so retrying playback does not reuse a dead cache.
-export async function mediaBase(config: Configuration, send: Send): Promise<void> { await route(config, send, new Set(), true); }

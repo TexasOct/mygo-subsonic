@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.2
+
+- Collect album batches into one scrollable list across all album sorts and home-page See All links, instead of navigating every 200 albums. Bound each load to 5,000 albums and 8 seconds, retaining completed batches on later network failures with an accurately named Remaining albums continuation.
+- Keep native automatic loading for every search kind, liked tracks and saved albums. Verify complete artist indices, artist/album/playlist details and playlist lists without artificial cutoffs.
+- Explain where to enter connection settings before sign-in, show connection progress, and retain actionable settings guidance after network, credential or protocol failures. Do not open external pages or depend on unsupported custom forms.
+- Simplify setting labels, help, errors and Chinese translations; distinguish server folder IDs from names/paths and explain text-based boolean fields.
+- Enforce per-caller deadlines while sharing route discovery. Reject malformed album lists and servers that ignore batch limits instead of silently truncating or loading without bounds.
+- Extend real MoeJS and unmodified-host UI checks for complete/bounded album lists and sign-in guidance in light/dark, narrow/desktop layouts.
+
 ## 0.1.1
 
 - Replace album-sized “Next page” cover cards with the official host's compact section continuation action.

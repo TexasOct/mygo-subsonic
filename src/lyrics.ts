@@ -10,7 +10,7 @@ export async function lyrics({ id }: { id: string }): Promise<Lyrics> {
   id = identifier(id);
   const songResponse = await request(config, "getSong", { id });
   const song = songResponse.song;
-  if (!song) throw fail("unavailable", t("The requested item was not found on the server."));
+  if (!song) throw fail("unavailable", t("This track is no longer available on the server. Reload the library."));
   if (songResponse.openSubsonic) {
     let response: SubsonicResponse | undefined;
     try { response = await request(config, "getLyricsBySongId", { id }); }

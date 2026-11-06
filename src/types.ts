@@ -2,6 +2,7 @@
 export interface Host {
   setting(key: string): string;
   t(text: string): string;
+  signInPrompt(prompt: { text?: string; qr?: string }): void;
   crypto: { md5(text: string): string };
   storage: {
     get<T>(key: string): T | undefined;

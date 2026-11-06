@@ -11,10 +11,16 @@
 需要 MyGo Music **0.1.13+**，服务器需支持 Subsonic API **1.16.1** 及所用接口。插件契约与浏览界面在未修改的官方提交 [`799ec1b`](https://github.com/egoist/mygo-music/commit/799ec1bac6d3006ac1aa29e06be9e6ae92cf0028)（0.1.13）和 [`93bf5a6`](https://github.com/egoist/mygo-music/commit/93bf5a6202119305bc36fa7b1da71402c96e6879)（0.1.18）中测试。
 
 - [一键安装](mygo-music://install-plugin?repo=TexasOct/mygo-subsonic)，或在 **设置 → 插件 → +** 中粘贴 `https://github.com/TexasOct/mygo-subsonic`。
-- 或从 [Releases](https://github.com/TexasOct/mygo-subsonic/releases) 下载 `mygo-subsonic-0.1.1.zip`，安装本地 ZIP。
+- 或从 [Releases](https://github.com/TexasOct/mygo-subsonic/releases) 下载 `mygo-subsonic-0.1.2.zip`，安装本地 ZIP。
 - 本地开发可直接安装本项目文件夹；手动复制请保留 `plugin.json`、`index.js`、`locales/` 的相对位置。
 
-安装后填写插件设置，切换到 Subsonic 音源，再点击登录。
+### 第一次使用
+
+1. 打开 **设置 → 插件 → Subsonic**。
+2. 填写**服务器地址、用户名、密码**，其他选项通常可以留空。
+3. 切换到 Subsonic 音源，点击**登录**。
+
+登录窗口会显示连接进度；失败时会说明要检查什么。若需修改配置，请先关闭登录窗口，再打开上述设置。官方 MyGo 不支持在登录窗口里填写连接信息，也不支持由插件自动打开设置页。
 
 <a id="configuration"></a>
 ## 配置与鉴权
@@ -25,11 +31,11 @@
 
 | 设置 | 填写内容 |
 | --- | --- |
-| Server URLs (priority order) / 服务器地址（优先级顺序） | 1–5 个同一服务器的地址，用英文逗号分隔，前面的优先。单个地址也可直接填写。允许 HTTP、HTTPS、端口、子路径和末尾 `/rest`；不要附加用户名密码、查询参数或片段。 |
-| Username / Password | 用户名、密码或专用 Subsonic 客户端密码。密码首尾空格会保留。 |
-| Authentication mode | 留空或填写 `token`（推荐）；只有服务器明确需要时填写 `legacy`。不会自动降级。 |
-| Music folder ID | 可选。协议支持时限制浏览、搜索、收藏；歌单仍为账号级。 |
-| Scrobbling | 填写 `true` 开启；留空或 `false` 关闭。跟随 MyGo 的已播放事件上报，不代表完整收听时长。 |
+| 服务器地址 / Server addresses | 填写完整地址，例如 `http://192.168.1.10:4533`。同一服务器的内网、公网地址可用英文逗号分隔，常用地址放前面，最多 5 个。支持 HTTP、HTTPS、端口、子路径和末尾 `/rest`；不要在地址中附带用户名、密码、`?` 查询参数或 `#` 片段。 |
+| 用户名 / Username、密码 / Password | 填写音乐服务器的用户名及密码，也可使用服务器提供的专用 Subsonic 客户端密码。密码首尾空格会保留。 |
+| 登录方式 / Sign-in method | 通常留空即可，默认使用 `token`。只有服务器要求时才填写 `legacy`，插件不会自动切换。 |
+| 音乐目录 ID（可不填） / Music folder ID (optional) | 留空使用所有目录。如需限制目录，填写服务器提供的目录 ID，不是目录名或磁盘路径。仅在接口支持时生效，不影响歌单。 |
+| 记录播放历史 / Save listening history | 填写 `true` 开启；留空或 `false` 关闭。开启后向服务器上报 MyGo 标记为已播放的歌曲，不代表整首听完。 |
 
 地址文本框示例，局域网优先、公网兜底：
 
@@ -70,13 +76,20 @@ http://192.168.1.10:4533, https://music.example.com/navidrome
 | 歌词 | `getLyrics`；OpenSubsonic 优先尝试 `getLyricsBySongId` |
 | 可选播放记录 | `scrobble` |
 
-### 浏览与翻页
+### 列表如何加载
 
-- **专辑列表**：每批 200 项，标题下显示当前条目范围；有后续内容时，在列表末尾通过宿主原生的紧凑“下一页 / 查看全部”入口导航，不再显示成封面卡片。
-- **歌手索引**：`getArtists` 本来就返回完整索引，现在直接交给宿主的虚拟网格滚动，不再人为拆成 50 项一页。
-- **搜索、喜欢的歌曲、收藏专辑**：每批 50 项，由宿主在接近列表底部时自动续载。
+| 页面 | 滚动与加载方式 |
+| --- | --- |
+| 专辑列表、首页“最近添加 / 最近播放”的查看全部 | 自动分批读取专辑，汇总到同一页连续滚动，不再每 200 张手动翻页。按名称、歌手、添加时间、播放时间和播放频率排列时使用同一套逻辑。 |
+| 歌手索引 | 一次返回完整索引，在同一页滚动，不人为拆页。 |
+| 搜索歌曲 / 专辑 / 歌手 / 歌单、喜欢的歌曲、收藏专辑 | 保留 MyGo 的自动续载，每批 50 项，接近底部时继续加载。 |
+| 歌手详情、专辑详情、歌单详情、歌单列表 | 返回接口提供的完整列表，不按 50 或 200 项截断；歌单中的重复歌曲会保留。 |
 
-宿主按可见行渲染网格，但 `browse()` 没有滚动追加远程页面的接口，所以专辑仍需显式续页，不是无限滚动加载。没有分页接口的歌手索引、收藏和歌单仍需完整获取，大库有相应加载开销。时长与歌词时间映射为 MyGo 使用的毫秒。
+专辑浏览每次最多收集 **5,000 张，或用时 8 秒**。正常大小的库只有一页；超过上限或后续批次遇到网络故障时，保留已加载内容，并在底部显示“其余专辑”，点击右侧 MyGo 原生“查看全部”继续。标题下的数量会区分完整列表和已加载数量。登录失效、权限或协议错误仍会正常报错，不伪装成加载完成。
+
+MyGo 的专辑浏览和歌手索引使用虚拟列表，只渲染可见行；歌曲列表也由宿主处理虚拟滚动。**并非所有网格都有虚拟化**：搜索中的专辑 / 歌手、收藏专辑及歌手详情等布局仍由官方 MyGo 决定。插件不修改宿主，也不宣称修复这些布局的渲染性能。
+
+官方 `browse()` 不能在滚动时追加远程页面，所以这里是先收集有上限的列表再显示，不是真正的网络无限滚动。没有分页接口的歌手索引、收藏和歌单仍需完整获取；收藏及歌单搜索的每次续载也可能重新读取全量列表。大库因此仍有网络与内存开销。时长与歌词时间使用毫秒。
 
 ### 音质与限制
 
@@ -100,7 +113,7 @@ npm run test:upstream
 # 可选：以本地仓库作为克隆源，仍检出干净的官方固定提交
 MYGO_MUSIC_DIR=/path/to/mygo-music npm run test:upstream
 # 同时测试官方 ZIP 安装器
-MYGO_SUBSONIC_ZIP="$PWD/dist/mygo-subsonic-0.1.1.zip" npm run test:upstream
+MYGO_SUBSONIC_ZIP="$PWD/dist/mygo-subsonic-0.1.2.zip" npm run test:upstream
 # 验证另一官方固定提交；也会用真实插件响应检查宿主虚拟列表与续页按钮
 MYGO_MUSIC_REVISION=93bf5a6202119305bc36fa7b1da71402c96e6879 npm run test:upstream
 ```

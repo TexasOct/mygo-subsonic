@@ -4,6 +4,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -129,20 +130,95 @@ func TestSubsonicRuntime(t *testing.T) {
 	}
 }
 
-// Pagination must survive the real sandbox and preserve the native Browse model.
+// Prompt callbacks and rejected errors must both retain the settings path.
+func TestSubsonicSignInPrompts(t *testing.T) {
+	p, err := Load(os.Getenv("MYGO_SUBSONIC_DIR"), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	var prompts []music.SignInPrompt
+	p.OnSignInPrompt(func(prompt music.SignInPrompt) { prompts = append(prompts, prompt) })
+	type state struct {
+		Name   string
+		Prompt music.SignInPrompt
+		Error  string
+	}
+	var states []state
+	_, err = p.SignIn()
+	if !errors.Is(err, music.ErrSetup) || !strings.Contains(err.Error(), "Settings → Plugins → Subsonic") || len(prompts) != 1 {
+		t.Fatalf("missing configuration guidance: %v %+v", err, prompts)
+	}
+	states = append(states, state{"setup", prompts[0], err.Error()})
+	status := 40
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if status == 503 {
+			w.WriteHeader(503)
+			return
+		}
+		if status == 0 {
+			json.NewEncoder(w).Encode(map[string]any{"subsonic-response": map[string]any{"status": "ok", "version": "1.16.1"}})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"subsonic-response": map[string]any{"status": "failed", "error": map[string]any{"code": status, "message": "UNTRUSTED_SECRET"}}})
+	}))
+	defer server.Close()
+	for key, value := range map[string]string{"serverUrl": server.URL, "username": "listener", "password": "PASSWORD_SECRET"} {
+		if err := p.SetSetting(key, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	prompts = nil
+	_, err = p.SignIn()
+	if !errors.Is(err, music.ErrSignIn) || !strings.Contains(err.Error(), "Settings → Plugins → Subsonic") || len(prompts) != 2 {
+		t.Fatalf("rejected login guidance: %v %+v", err, prompts)
+	}
+	states = append(states, state{"checking", prompts[0], ""}, state{"credentials", prompts[1], err.Error()})
+	status = 503
+	prompts = nil
+	_, err = p.SignIn()
+	if err == nil || !strings.Contains(err.Error(), "Check your network connection.") || !strings.Contains(err.Error(), "Server addresses") || len(prompts) != 2 {
+		t.Fatalf("network guidance: %v %+v", err, prompts)
+	}
+	states = append(states, state{"network", prompts[1], err.Error()})
+	status = 0
+	if _, err := p.SignIn(); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range states {
+		for _, secret := range []string{"PASSWORD_SECRET", "UNTRUSTED_SECRET", server.URL} {
+			if strings.Contains(s.Error+s.Prompt.Text, secret) {
+				t.Fatal("sign-in guidance leaked server data")
+			}
+		}
+	}
+	if dir := os.Getenv("MYGO_SUBSONIC_BROWSE_DIR"); dir != "" {
+		data, err := json.Marshal(states)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "sign-in.json"), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// Complete bounded grids must survive the sandbox without artificial page breaks.
 func TestSubsonicBrowse(t *testing.T) {
+	albumCount := 651
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.ParseForm()
 		response := map[string]any{"status": "ok", "version": "1.16.1"}
 		switch r.URL.Path {
 		case "/rest/ping.view":
 		case "/rest/getAlbumList2.view":
-			if r.Form.Get("size") != "201" {
-				t.Errorf("album lookahead size: %q", r.Form.Get("size"))
+			size, _ := strconv.Atoi(r.Form.Get("size"))
+			if size < 1 || size > 500 {
+				t.Errorf("invalid album batch size: %d", size)
 			}
 			offset, _ := strconv.Atoi(r.Form.Get("offset"))
 			var albums []any
-			for i := offset; i < min(offset+201, 201); i++ {
+			for i := offset; i < min(offset+size, albumCount); i++ {
 				albums = append(albums, map[string]any{"id": "al" + strconv.Itoa(i), "name": "Album " + strconv.Itoa(i)})
 			}
 			response["albumList2"] = map[string]any{"album": albums}
@@ -175,7 +251,7 @@ func TestSubsonicBrowse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(albums.Sections) != 2 || len(albums.Sections[0].Albums) != 200 || albums.Subtitle != "1–200" || albums.Sections[1].MorePage != "albums:newest:200" {
+	if len(albums.Sections) != 1 || len(albums.Sections[0].Albums) != 651 || albums.Subtitle != "651 albums" || albums.Sections[0].MorePage != "" {
 		t.Fatalf("album page: %+v", albums)
 	}
 	for _, section := range albums.Sections {
@@ -183,17 +259,22 @@ func TestSubsonicBrowse(t *testing.T) {
 			t.Fatal("pagination must not render as a cover card")
 		}
 	}
-	last, err := p.Browse(albums.Sections[1].MorePage)
-	if err != nil || len(last.Sections) != 1 || len(last.Sections[0].Albums) != 1 || last.Sections[0].Albums[0].ID != "al200" || last.Sections[0].MorePage != "" {
+	last, err := p.Browse("albums:newest:200")
+	if err != nil || len(last.Sections) != 1 || len(last.Sections[0].Albums) != 451 || last.Sections[0].Albums[0].ID != "al200" || last.Subtitle != "Albums 201–651" || last.Sections[0].MorePage != "" {
 		t.Fatalf("last page: %+v %v", last, err)
 	}
 	artists, err := p.Browse("artists:0")
 	if err != nil || len(artists.Sections) != 1 || len(artists.Sections[0].Artists) != 551 || artists.Sections[0].MorePage != "" {
 		t.Fatalf("artist index: %+v %v", artists, err)
 	}
+	albumCount = 5001
+	limited, err := p.Browse("albums:newest:0")
+	if err != nil || len(limited.Sections) != 2 || len(limited.Sections[0].Albums) != 5000 || limited.Sections[1].Title != "Remaining albums" || limited.Sections[1].MorePage != "albums:newest:5000" {
+		t.Fatalf("bounded album index: %+v %v", limited, err)
+	}
 	// Export actual sandbox responses for the separate official UI test package.
 	if dir := os.Getenv("MYGO_SUBSONIC_BROWSE_DIR"); dir != "" {
-		for name, page := range map[string]*music.Browse{"albums": albums, "artists": artists} {
+		for name, page := range map[string]*music.Browse{"albums": albums, "albums-limited": limited, "artists": artists} {
 			data, err := json.Marshal(page)
 			if err != nil {
 				t.Fatal(err)

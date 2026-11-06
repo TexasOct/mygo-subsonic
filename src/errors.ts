@@ -12,18 +12,18 @@ export const fail = (code: ErrorCode, message: string): PluginError => new Plugi
 export function apiFailure(error: { code: number } | undefined): PluginError {
   const code = Number(error?.code ?? 0);
   const messages: Record<number, string> = {
-    10: "The server rejected a required request parameter.",
-    20: "The server requires a newer Subsonic client API.",
-    30: "The server must support Subsonic API 1.16.1 or newer.",
-    40: "The server rejected the username or password.",
-    41: "This account requires legacy authentication. Change the authentication mode in settings.",
-    50: "This account does not have permission for this operation.",
+    10: "The server could not understand this request. Check that it supports the required Subsonic feature.",
+    20: "This server requires a newer Subsonic API version than this plugin uses.",
+    30: "This server's Subsonic API is too old. Version 1.16.1 or newer is required.",
+    40: "Sign-in failed. Check your username and password.",
+    41: "This server requires password sign-in. Set Sign-in method to legacy in the plugin settings.",
+    50: "Your account is not allowed to do this. Ask your server administrator for access.",
     60: "The server requires an active Subsonic Premium subscription.",
-    70: "The requested item was not found on the server.",
+    70: "This item is no longer available on the server. Reload the library.",
   };
   // Never display untrusted server errors: they may echo a credential URL.
   let category: ErrorCode = "server";
   if ([40, 41].includes(code)) category = "signIn";
   else if (code === 70) category = "unavailable";
-  return new PluginError(category, t(messages[code] || "The Subsonic server could not complete the request."), code);
+  return new PluginError(category, t(messages[code] || "The server could not complete this action. Try again; if it keeps failing, check the server logs."), code);
 }

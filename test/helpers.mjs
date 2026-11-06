@@ -10,6 +10,7 @@ export async function fixture(test, options = {}) {
   const settings = { username: "listener", password: " 密码 +&= ", authMode: "", musicFolderId: "", scrobble: "", ...options.settings };
   const storage = new Map();
   const calls = [];
+  const prompts = [];
   let handler = options.handler || (() => ({}));
   const server = createServer(async (req, res) => {
     try {
@@ -45,6 +46,7 @@ export async function fixture(test, options = {}) {
   const previousHost = globalThis.host;
   globalThis.host = {
     setting: (key) => settings[key] || "", t: (text) => text, crypto: { md5 },
+    signInPrompt: (prompt) => prompts.push(structuredClone(prompt)),
     storage: { get: (key) => storage.get(key), set: (key, value) => storage.set(key, structuredClone(value)), remove: (key) => storage.delete(key) },
   };
   test.after(async () => {
@@ -52,5 +54,5 @@ export async function fixture(test, options = {}) {
     await new Promise((resolve) => server.close(resolve));
     globalThis.host = previousHost;
   });
-  return { plugin, settings, storage, calls, server, handle: (next) => { handler = next; } };
+  return { plugin, settings, storage, calls, prompts, server, handle: (next) => { handler = next; } };
 }

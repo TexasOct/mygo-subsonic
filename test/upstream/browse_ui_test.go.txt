@@ -11,12 +11,12 @@ import (
 	"mygo-music/internal/music"
 )
 
-// Actual plugin responses use virtual rows and a compact native continuation,
-// at both desktop and narrow widths, without any host implementation changes.
+// Actual plugin responses scroll through complete virtualized lists. Only a
+// bounded large-library result has a compact, explicitly named continuation.
 func TestSubsonicBrowseUI(t *testing.T) {
 	for _, width := range []int{1200, 640} {
 		for _, dark := range []bool{false, true} {
-			for _, name := range []string{"albums", "artists"} {
+			for _, name := range []string{"albums", "albums-limited", "artists"} {
 				mode := "light"
 				if dark {
 					mode = "dark"
@@ -35,16 +35,16 @@ func TestSubsonicBrowseUI(t *testing.T) {
 					a.library.browses[name] = &browseData{page: &page}
 					a.route = route{page: pageBrowse, src: "fake", id: name}
 					fake(a).browse = func(id string) (*music.Browse, error) {
-						if id != "albums:newest:200" {
+						if id != "albums:newest:5000" {
 							t.Errorf("unexpected continuation: %s", id)
 						}
-						return &music.Browse{Title: "Last page"}, nil
+						return &music.Browse{Title: "Remaining albums"}, nil
 					}
 					tt := ui.NewTester(a.view, width, 800)
 					tt.SetDark(dark)
 					settled(tt)
 					if _, ok := tt.Find("See All"); ok {
-						t.Fatal("footer unexpectedly rendered in the initial viewport")
+						t.Fatal("continuation unexpectedly rendered in the initial viewport")
 					}
 					first, last := a.trackList.Visible()
 					if last-first > 20 {
@@ -56,33 +56,40 @@ func TestSubsonicBrowseUI(t *testing.T) {
 					if first < 10 || last-first > 20 {
 						t.Fatalf("end viewport not virtualized: %d..%d", first, last)
 					}
-					if name == "albums" {
+					if _, ok := tt.Find("Next page"); ok {
+						t.Fatal("obsolete next-page label remains")
+					}
+					if name == "albums-limited" {
 						button, ok := tt.Find("See All")
 						if !ok {
-							t.Fatalf("missing native continuation: %q", tt.Texts())
+							t.Fatal("missing bounded-list continuation")
 						}
 						if button.W > 120 || button.H > 48 {
 							t.Fatalf("continuation is not compact: %+v", button)
 						}
-						if _, ok := tt.Find("Next page"); !ok {
-							t.Fatal("missing next-page title")
+						if _, ok := tt.Find("Remaining albums"); !ok {
+							t.Fatal("missing remaining-albums title")
 						}
 					} else {
 						if _, ok := tt.Find("See All"); ok {
-							t.Fatal("artist index must not have continuation")
+							t.Fatal("complete lists must not have pagination")
 						}
-						if _, ok := tt.Find("Artist 550"); !ok {
-							t.Fatal("last artist is not reachable")
+						label := "Album 650"
+						if name == "artists" {
+							label = "Artist 550"
+						}
+						if _, ok := tt.Find(label); !ok {
+							t.Fatalf("last item is not reachable: %s", label)
 						}
 					}
 					if dir := os.Getenv("MM_FRAMES"); dir != "" {
 						saveFrame(t, dir, name+"-"+mode+"-"+strconv.Itoa(width)+".png", tt.Image())
 					}
-					if name == "albums" {
+					if name == "albums-limited" {
 						if err := tt.Click("See All"); err != nil {
 							t.Fatal(err)
 						}
-						if a.route != (route{page: pageBrowse, src: "fake", id: "albums:newest:200"}) {
+						if a.route != (route{page: pageBrowse, src: "fake", id: "albums:newest:5000"}) {
 							t.Fatalf("wrong continuation route: %+v", a.route)
 						}
 						runPost(t, posts)

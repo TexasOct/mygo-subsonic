@@ -11,10 +11,16 @@ Targets **unmodified official MyGo Music**. Modular TypeScript is bundled into a
 Requires MyGo Music **0.1.13+** and Subsonic API **1.16.1** with the endpoints you use. Runtime and browsing UI tests use unmodified official revisions [`799ec1b`](https://github.com/egoist/mygo-music/commit/799ec1bac6d3006ac1aa29e06be9e6ae92cf0028) (0.1.13) and [`93bf5a6`](https://github.com/egoist/mygo-music/commit/93bf5a6202119305bc36fa7b1da71402c96e6879) (0.1.18).
 
 - [Install plugin](mygo-music://install-plugin?repo=TexasOct/mygo-subsonic), or paste `https://github.com/TexasOct/mygo-subsonic` into **Settings → Plugins → +**.
-- Or download `mygo-subsonic-0.1.1.zip` from [Releases](https://github.com/TexasOct/mygo-subsonic/releases) and install the local ZIP.
+- Or download `mygo-subsonic-0.1.2.zip` from [Releases](https://github.com/TexasOct/mygo-subsonic/releases) and install the local ZIP.
 - Developers can install this project folder. Keep `plugin.json`, `index.js` and `locales/` together when copying manually.
 
-Configure settings, switch to the Subsonic source and sign in.
+### First use
+
+1. Open **Settings → Plugins → Subsonic**.
+2. Enter **Server addresses, Username and Password**. Other fields can usually stay blank.
+3. Switch to the Subsonic source and click **Sign In**.
+
+The login window shows connection progress and explains what to check on failure. Close it before editing the settings above. Official MyGo does not let this plugin add connection fields to the login window or open settings automatically.
 
 ## Configuration and authentication
 
@@ -24,11 +30,11 @@ Official MyGo renders plugin settings as **text inputs**, not switches, dropdown
 
 | Setting | Value |
 | --- | --- |
-| Server URLs (priority order) | 1–5 addresses for the SAME server, separated by commas; the first has highest priority. A single URL also works. HTTP/HTTPS, ports, subpaths and trailing `/rest` are accepted. No embedded credentials, query or fragment. |
-| Username / Password | Server credentials or a dedicated Subsonic client password. Password whitespace is preserved. |
-| Authentication mode | Empty or `token` (recommended); explicit `legacy` only if required. No automatic downgrade. |
-| Music folder ID | Optional restriction for browsing/search/favorites where supported; playlists remain account-wide. |
-| Scrobbling | Enter `true` to enable; empty or `false` disables. Uses MyGo's played event, not a full-duration check. |
+| Server addresses | Enter a full address, such as `http://192.168.1.10:4533`. Separate LAN/public addresses for the same server with commas, preferred address first; up to 5. HTTP/HTTPS, ports, subpaths and trailing `/rest` work. Do not include a username, password, `?query` or `#fragment`. |
+| Username / Password | Your music server username and password, or a dedicated Subsonic app password. Password whitespace is preserved. |
+| Sign-in method | Usually leave blank for `token`. Enter `legacy` only if your server requires it. The plugin will not switch methods automatically. |
+| Music folder ID (optional) | Leave blank for all folders. To restrict supported views, enter the server's folder ID, not its name or disk path. Playlists are not filtered. |
+| Save listening history | Enter `true` to enable; blank or `false` keeps this off. Sends tracks marked as played by MyGo, without checking whether you finished them. |
 
 Example with LAN first and public fallback:
 
@@ -58,7 +64,7 @@ Metadata and mutations use POST form bodies and reject redirects. Artwork/audio 
 
 ## Features
 
-- Album shelves, paged album browsing and artist indices (`getAlbumList2`, `getArtists`).
+- Album shelves, continuous album browsing and artist indices (`getAlbumList2`, `getArtists`).
 - Track, album and artist search (`search3`); local filtering of account playlists.
 - Album/artist details (`getAlbum`, `getArtist`).
 - Liked tracks, saved albums and starred artists (`getStarred2`, `star`, `unstar`).
@@ -67,13 +73,20 @@ Metadata and mutations use POST form bodies and reject redirects. Artwork/audio 
 - Legacy lyrics and optional OpenSubsonic structured lyrics.
 - Opt-in `scrobble` submissions.
 
-### Browsing and pagination
+### How lists load
 
-- **Albums**: batches of 200 with the current item range below the title. A compact native “Next page / See All” action at the end navigates to the next batch instead of rendering a cover-sized pagination card.
-- **Artist index**: `getArtists` already returns the complete index. The host's virtualized grid now scrolls through it without artificial 50-item pages.
-- **Search, liked tracks and saved albums**: 50-item batches, automatically loaded by the host as the list approaches the bottom.
+| Page | Scrolling and loading |
+| --- | --- |
+| Albums and the home page's Recently added / Recently played See All links | Collect album batches into one scrollable list instead of requiring a click every 200 albums. Name, artist, newest, recent and frequent sorts use the same loader. |
+| Artist index | Return the complete index for scrolling on one page. |
+| Search for tracks / albums / artists / playlists, liked tracks, saved albums | Keep MyGo's automatic continuation: 50 items per batch, with another batch near the bottom. |
+| Artist, album and playlist details; playlist list | Return the complete server result without a client-side 50/200-item cutoff. Playlist duplicates are preserved. |
 
-The host renders visible grid rows, but `browse()` has no remote-page append interface. Album continuation is therefore explicit navigation, not infinite loading. Unpaged artist indices, favorites and playlists are still fetched in full, with corresponding large-library cost. Durations and lyric timing use MyGo milliseconds.
+Each album browse collects at most **5,000 albums or 8 seconds of results**. A normal-sized library stays on one page. At a limit or after a later network failure, completed batches remain visible with a **Remaining albums** section; the host's native **See All** action opens the remainder. The subtitle distinguishes a complete count from a loaded count. Authentication, permission and protocol errors still surface rather than looking like a finished list.
+
+MyGo virtualizes album browsing and the artist index, rendering only visible rows; track lists also use the host's virtualization. **Not every grid is virtualized**: layouts such as album/artist search results, saved albums and artist details remain under official MyGo's control. This plugin does not modify the host or claim to fix those layouts' rendering costs.
+
+Official `browse()` cannot append remote results during scrolling. This approach collects a bounded list before showing it, rather than providing true network infinite scrolling. Unpaged artist, favorite and playlist APIs still fetch complete results; favorite and playlist-search continuation may fetch that full result again. Large libraries therefore retain network and memory costs. Durations and lyric timing use milliseconds.
 
 ### Quality and limitations
 
@@ -97,7 +110,7 @@ npm run test:upstream
 # Optional local clone source; still tests a pristine pinned official revision:
 MYGO_MUSIC_DIR=/path/to/mygo-music npm run test:upstream
 # Also test the official ZIP installer:
-MYGO_SUBSONIC_ZIP="$PWD/dist/mygo-subsonic-0.1.1.zip" npm run test:upstream
+MYGO_SUBSONIC_ZIP="$PWD/dist/mygo-subsonic-0.1.2.zip" npm run test:upstream
 # Another pinned official revision; UI tests consume real plugin responses:
 MYGO_MUSIC_REVISION=93bf5a6202119305bc36fa7b1da71402c96e6879 npm run test:upstream
 ```
