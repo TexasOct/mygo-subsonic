@@ -7,11 +7,14 @@ Use Node.js 22+ and `zip`:
 ```sh
 npm ci
 npm run check
+npm run build       # src/index.ts -> root index.js
 npm run package
 npm run test:upstream
 ```
 
 Install the folder or ZIP from official MyGo Music's **Settings → Plugins → +**. Upstream tests clone a pristine pinned official revision and require its Go toolchain; `MYGO_MUSIC_DIR` optionally supplies a local clone source without testing its uncommitted changes. Set `MYGO_SUBSONIC_ZIP` to also exercise the official ZIP installer. `MYGO_MUSIC_REVISION` accepts a full pinned official commit hash for additional compatibility checks; release validation covers `799ec1bac6d3006ac1aa29e06be9e6ae92cf0028` and `93bf5a6202119305bc36fa7b1da71402c96e6879`.
+
+For manual folder installs, keep `plugin.json`, `index.js` and `locales/` together. Installation needs no Node.js or build step. See [README.md](README.md) or [README.en.md](README.en.md) for the user guide.
 
 ## Code conventions
 
@@ -35,6 +38,56 @@ The `test/upstream/*.go.txt` fixtures stay outside a Go module. The upstream scr
 Check every list entrypoint when changing browsing: all album sorts, home See All links, artists, all search kinds, liked tracks, saved albums, playlist lists and detail pages. Keep native automatic continuation where it exists. Album collection has one shared time/item budget; a concurrent route probe must not extend a caller's deadline. Do not describe all host grids as virtualized or add indefinite full-library loads.
 
 Host feature/UI implementation work is paused and outside this release. No host patch or second protocol implementation belongs in this repository. Any future upstream submission requires separate confirmation after the usable plugin release.
+
+## Technical notes
+
+### Configuration and routing
+
+The release supports one server/account with up to five ordered addresses. The parser accepts commas or newlines, trims address whitespace, normalizes trailing paths (including `/rest`) and deduplicates in first-seen order. Addresses must not contain credentials, query parameters or fragments. Password whitespace is preserved. Every address must be a trusted entrance to the same server; there is no cross-server queue isolation.
+
+Official MyGo renders settings as text fields, without switches, dropdowns or password masking. Connection fields belong in plugin settings, not the login window. The plugin cannot open settings automatically. See [SECURITY.md](SECURITY.md) for token/legacy authentication, authenticated media URLs and credential-storage limitations.
+
+- Authenticated `ping` selects the first reachable address. Selection is cached for 30 seconds, then checked on the next request, with no background polling.
+- Transport failures, timeouts and HTTP `404/408/429/500/502/503/504` may try the next address; metadata reads may retry. Authentication, permission, invalid JSON and protocol errors stop immediately. Authentication never silently downgrades.
+- Multiple-address probes allow 1.5 seconds per address; a single-address probe allows 20 seconds. A protocol request has a shared 25-second probe/retry budget. High-latency addresses may require adjusting priority.
+- Playlist, favorite and scrobble writes are never automatically replayed after an ambiguous failure.
+- Artwork and audio URLs use the selected address. Each new playback URL request rechecks reachability without waiting for the metadata cache. The plugin cannot replace a URL after handing it to the host, so mid-stream failover is not seamless.
+- Sign-in saves a configuration-bound local marker only after a successful `ping`. Logout or connection changes invalidate it; matching markers survive runtime restarts.
+
+### Protocol coverage
+
+The plugin uses Subsonic API 1.16.1 and optional OpenSubsonic lyrics. Durations and lyric timing use milliseconds.
+
+| Feature | Endpoints |
+| --- | --- |
+| Album shelves and artist index | `getAlbumList2`, `getArtists` |
+| Track, album and artist search | `search3`; account playlists are filtered locally |
+| Album and artist details | `getAlbum`, `getArtist` |
+| Favorites | `getStarred2`, `star`, `unstar` |
+| Playlists | `getPlaylists`, `getPlaylist`, `createPlaylist`, `updatePlaylist`, `deletePlaylist` |
+| Cover art and playback | `getCoverArt`, `stream` |
+| Lyrics | `getLyrics`; OpenSubsonic `getLyricsBySongId` is tried first when available |
+| Opt-in listening history | `scrobble`, triggered by MyGo's played event, not track completion |
+
+Remote playback, radio and video capabilities are not exported. Lyrics fallback does not hide authentication or permission failures.
+
+### List loading
+
+Album browsing and the home page's Recently added / Recently played See All links share a loader for name, artist, newest, recent and frequent sorts. Each browse collects at most 5,000 albums or 8 seconds of results before rendering. At a limit or later network failure, completed batches remain visible with a Remaining albums section; the host's native See All action opens the remainder. Subtitles distinguish complete counts from loaded counts. Authentication, permission and protocol errors still surface.
+
+Artist indices, artist/album/playlist details and playlist lists return complete server results without a client-side 50/200-item cutoff. Playlist duplicates are preserved. Track/album/artist/playlist search, liked tracks and saved albums keep the host's automatic continuation with 50-item batches.
+
+Official `browse()` cannot append remote results during scrolling: album browsing collects bounded results before display, rather than providing network infinite scrolling. Unpaged artist, favorite and playlist endpoints still fetch complete results; favorite and playlist-search continuation may fetch the full result again, with network and memory costs for large libraries.
+
+The host virtualizes album browsing, artist indices and track lists. Album/artist search grids, saved albums and artist-detail layouts remain under host control; not every grid is virtualized, and the plugin does not patch host rendering.
+
+### Playback and playlist limits
+
+- `standard` requests MP3 up to 128 kbps; `high` requests MP3 up to 320 kbps.
+- `lossless` streams raw FLAC. Raw MP3 and Ogg Vorbis are reported as high, not lossless. AAC, ALAC, WAV, Opus and other codecs fall back to high MP3. Opus detection depends on server metadata; MyGo's Ogg decoder only supports Vorbis.
+- Transcoding and permissions belong to the server. `maxBitRate` is an upper-bound request, not a guarantee.
+- Playlist writes require `owner` to exactly match the username. Removal by track ID deletes all matching occurrences; reorder preserves duplicates. Local edits to a playlist are serialized, but external clients may still conflict because the protocol has no conditional updates.
+- Mock and official-runtime tests do not certify live Navidrome, Gonic or original Subsonic deployments, or actual audio decoding/transcoding.
 
 ## Release checklist
 
