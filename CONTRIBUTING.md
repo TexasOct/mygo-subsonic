@@ -31,7 +31,7 @@ For manual folder installs, keep `plugin.json`, `index.js` and `locales/` togeth
 
 ## Tests
 
-Node tests use local HTTP servers and the shipped bundle. Cover failures, opaque IDs, pagination, duplicates, pending requests, connection changes, ordered address attempts and credential handling.
+Node tests use local HTTP servers and the shipped bundle. Cover failures, opaque IDs, pagination, duplicates, pending requests, connection changes, ordered address attempts and credential handling. Credit tests cover large performer lists, arbitrary contributor roles, Unicode/name/ID deduplication, legacy list separators, incomplete credits, and consistent album mapping across library entrypoints. Runtime checks also verify credit aggregation and opaque artist-ID navigation through MoeJS and the official Go models.
 
 The `test/upstream/*.go.txt` fixtures stay outside a Go module. The upstream script copies them into official MyGo's `internal/plugin`, `internal/player` and `internal/app` to access package-private APIs. Tests cover real MoeJS execution, entrypoint constraints, ZIP installation, audio decoding/seeking, and UI rendering of actual plugin responses. Audio checks serve the official host's MP3/FLAC/Vorbis test files over local HTTP through the plugin's authenticated raw URLs, then decode and seek with the unmodified host, without initializing audio hardware. UI checks cover full/bounded album lists, virtual rows, sign-in guidance, narrow/desktop widths and light/dark themes. Set `MM_FRAMES` to an existing output directory to save screenshots. Only test files are added; no host implementation is modified.
 
@@ -70,6 +70,16 @@ The plugin uses Subsonic API 1.16.1 and optional OpenSubsonic lyrics. Durations 
 | Opt-in listening history | `scrobble`, triggered by MyGo's played event, not track completion |
 
 Remote playback, radio and video capabilities are not exported. Lyrics fallback does not hide authentication or permission failures.
+
+### Artist and contributor credits
+
+OpenSubsonic `artists` is authoritative when it contains named entries. `contributors[].artist` from every role joins the credit list, including performers, instruments, writers, arrangers and custom TIPL roles; no role allowlist or artist-count cutoff is applied. Structured names remain atomic. Without structured artists, `artist` or `displayArtist` is split only on semicolons (ASCII/full-width), Japanese list commas (`、`) and newlines. Commas, slashes, ampersands, middle dots and `feat.` are preserved to avoid breaking band/character names. A split legacy string's single ID is not assigned to any individual name.
+
+Credits keep first-seen order, deduplicate exact opaque IDs and NFC/case/whitespace-normalized name-only entries, and upgrade an ID-less name when exactly one matching server ID is available in the same collection. Different server IDs sharing a name remain distinct. Name-only credits use an empty ID and cannot trigger artist navigation or follow actions. No synthetic IDs, extra per-person requests or persistent identity cache is introduced.
+
+Album details combine album credits, every track's album artists and every track's credits. Each returned track references that mapped parent album while keeping its own track credits. Search, favorites and playlists prefer `albumArtists`/`displayAlbumArtist` for the embedded album, falling back to primary track artists only when album-artist metadata is absent; track contributors are not misidentified as album artists there. Album lists use only metadata supplied in that response, without fetching every album's tracks.
+
+The official MyGo artist model has no contributor-role fields, so roles are represented in one flat credit list, not a separate credits panel. Artist browse/search and each artist's discography still use server indices and `getArtist`; this does not construct a new all-library performer index or recover file tags omitted by the API.
 
 ### List loading
 

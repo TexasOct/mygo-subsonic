@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.4
+
+- Include OpenSubsonic contributors of every role in artist credits, including performers/instruments, composers, lyricists, arrangers and custom roles. Aggregate credits across every track on album detail pages, without an artist-count cutoff.
+- Deduplicate opaque server IDs and normalized name-only credits, upgrade unambiguous names to server identities, and retain distinct IDs with the same name. Name-only credits remain non-clickable rather than using fabricated IDs.
+- Keep track credits separate from explicit album artists in search, favorites and playlists; album-detail tracks share the actual parent album metadata. Support legacy/display strings with explicit list separators without splitting band-name punctuation or assigning a combined ID to individuals.
+- Add HTTP/bundle regressions and real MoeJS/official-host checks for credit parsing, aggregation, Unicode normalization and artist navigation. Document API metadata limits and the host's flat credit display.
+
 ## 0.1.3
 
 - Play original MP3, native FLAC and Ogg Vorbis for every quality preference. Standard/high selections no longer trigger MP3 conversion for formats the official host can decode; FLAC remains lossless.

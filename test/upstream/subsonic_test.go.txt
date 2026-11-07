@@ -57,7 +57,23 @@ func TestSubsonicRuntime(t *testing.T) {
 		case "getLyrics.view":
 			response["lyrics"] = map[string]any{"value": "[00:01.00]Hello"}
 		case "getAlbum.view":
-			response["album"] = map[string]any{"id": "album", "name": "Album", "originalReleaseDate": map[string]any{"year": 2024, "month": 3, "day": 9}}
+			response["album"] = map[string]any{
+				"id": "album", "name": "Album", "originalReleaseDate": map[string]any{"year": 2024, "month": 3, "day": 9},
+				"artists": []any{map[string]any{"id": "group", "name": "CLEVER CLOVER"}},
+				"song": []any{map[string]any{
+					"id": "opaque/1", "artists": []any{map[string]any{"name": " ÉFFY "}},
+					"contributors": []any{
+						map[string]any{"role": "composer", "artist": map[string]any{"id": "effy/+&", "name": "ÉFFY"}},
+						map[string]any{"role": "performer", "subRole": "Piano", "artist": map[string]any{"id": "effy/+&", "name": "ÉFFY"}},
+						map[string]any{"role": "custom instrument", "artist": map[string]any{"name": "演奏家"}},
+					},
+				}},
+			}
+		case "getArtist.view":
+			if r.Form.Get("id") != "effy/+&" {
+				t.Errorf("artist identity changed: %q", r.Form.Get("id"))
+			}
+			response["artist"] = map[string]any{"id": "effy/+&", "name": "ÉFFY"}
 		default:
 			t.Errorf("unexpected method: %s", r.URL.Path)
 		}
@@ -94,6 +110,18 @@ func TestSubsonicRuntime(t *testing.T) {
 	album, err := p.Album("album")
 	if err != nil || album.Album.Released != "2024-03-09" {
 		t.Fatalf("album: %+v %v", album, err)
+	}
+	// Credit normalization, aggregation and name-only IDs must survive MoeJS and
+	// the real Go decoder, not just Node's JavaScript implementation.
+	if len(album.Album.Artists) != 3 || album.Album.Artists[1].ID != "effy/+&" || album.Album.Artists[2].ID != "" || album.Album.Artists[2].Name != "演奏家" {
+		t.Fatalf("album credits: %+v", album.Album.Artists)
+	}
+	if len(album.Tracks) != 1 || len(album.Tracks[0].Artists) != 2 || album.Tracks[0].Artists[0].Name != "ÉFFY" || len(album.Tracks[0].Album.Artists) != 3 || album.Tracks[0].Album.ID != "album" {
+		t.Fatalf("track credits: %+v", album.Tracks)
+	}
+	artist, err := p.Artist(album.Album.Artists[1].ID)
+	if err != nil || artist.Artist.ID != "effy/+&" {
+		t.Fatalf("artist navigation: %+v %v", artist, err)
 	}
 	for _, quality := range []string{"standard", "high", "lossless"} {
 		stream, err := p.Stream("opaque/1", quality)

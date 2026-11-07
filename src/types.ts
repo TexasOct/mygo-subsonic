@@ -29,12 +29,17 @@ export type Parameters = Record<string, string | number | boolean | readonly (st
 // Subsonic uses singular property names for arrays. Optional fields reflect
 // actual omissions by older servers; IDs are opaque and never parsed.
 export interface SubsonicArtist {
-  id: string;
+  id?: string;
   name?: string;
   artist?: string;
   coverArt?: string;
   starred?: string;
   album?: SubsonicAlbum[];
+}
+export interface SubsonicContributor {
+  role?: string;
+  subRole?: string;
+  artist?: SubsonicArtist;
 }
 export interface ReleaseDate { year?: number; month?: number; day?: number }
 export interface SubsonicAlbum {
@@ -44,6 +49,8 @@ export interface SubsonicAlbum {
   artist?: string;
   artistId?: string;
   artists?: SubsonicArtist[];
+  displayArtist?: string;
+  contributors?: SubsonicContributor[];
   coverArt?: string;
   starred?: string;
   year?: number;
@@ -55,6 +62,8 @@ export interface SubsonicSong extends SubsonicAlbum {
   id: string;
   title?: string;
   albumId?: string;
+  albumArtists?: SubsonicArtist[];
+  displayAlbumArtist?: string;
   duration?: number;
   isVideo?: boolean;
   suffix?: string;

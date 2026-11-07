@@ -57,6 +57,7 @@ HTTP, HTTPS, ports and subpaths are supported. Only use trusted addresses for th
 ## Things to know
 
 - One server and one account at a time. Clear the old playback queue and reload music before switching servers or accounts.
+- Multiple artists and server-supplied performers, composers, lyricists, arrangers and other contributors are included in credits. Album details aggregate and deduplicate credits across all tracks. Credits without an artist ID are plain text. Tags not exposed by the server API cannot be recovered; MyGo displays a single credit list rather than separate role columns.
 - MP3, FLAC and Ogg Vorbis play as original files, even with standard or high quality selected. FLAC stays lossless.
 - Official MyGo has no decoder for WAV, AAC, ALAC, Opus and some other formats. Only those formats request server-side MP3 conversion (up to 128 kbps for standard, 320 kbps otherwise), requiring server configuration and permissions. Missing or conflicting format metadata causes an error, not automatic lossy conversion.
 - LAN / public address fallback does not guarantee seamless switching for a track already playing.

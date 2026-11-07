@@ -82,7 +82,8 @@ export async function album({ id }: { id: string }) {
   const config = signedConfiguration();
   const response = await request(config, "getAlbum", { id: identifier(id) });
   if (!response.album) throw fail("unavailable", t("This album is no longer available on the server. Reload the library."));
-  return { album: toAlbum(config, response.album), tracks: array(response.album.song).map((item) => toTrack(config, item)) };
+  const album = toAlbum(config, response.album);
+  return { album, tracks: array(response.album.song).map((item) => toTrack(config, item, album)) };
 }
 
 export async function artist({ id }: { id: string }) {

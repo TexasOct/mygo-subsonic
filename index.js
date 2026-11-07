@@ -301,6 +301,53 @@ function setSetting({ key }) {
   signOut();
 }
 
+// src/credits.ts
+function artistCredit(config, item) {
+  return {
+    id: String(item?.id ?? ""),
+    name: (item?.name?.trim() || item?.artist || "").trim(),
+    imageUrl: item?.coverArt ? mediaURL(config, "getCoverArt", { id: item.coverArt, size: 600 }) : void 0,
+    following: Boolean(item?.starred)
+  };
+}
+function mergeCredits(...groups) {
+  const items = groups.flat().filter((item) => item.name.trim());
+  const nameKey = (item) => item.name.normalize("NFC").trim().replace(/\s+/gu, " ").toLowerCase();
+  const identified = /* @__PURE__ */ new Map();
+  for (const item of items) {
+    if (!item.id) continue;
+    const key = nameKey(item);
+    const matches = identified.get(key) || /* @__PURE__ */ new Map();
+    matches.set(item.id, item);
+    identified.set(key, matches);
+  }
+  const result = /* @__PURE__ */ new Map();
+  for (const item of items) {
+    const name = nameKey(item);
+    const matches = identified.get(name);
+    if (!item.id && matches && matches.size > 1) continue;
+    const resolved = !item.id && matches?.size === 1 ? matches.values().next().value || item : item;
+    const key = resolved.id ? `id:${resolved.id}` : `name:${name}`;
+    const previous = result.get(key);
+    if (!previous) result.set(key, { ...resolved, name: resolved.name.trim() });
+    else result.set(key, { ...previous, imageUrl: previous.imageUrl || resolved.imageUrl, following: previous.following || resolved.following });
+  }
+  return [...result.values()];
+}
+function creditsOf(config, item) {
+  let primary = Array.isArray(item.artists) ? item.artists.map((credit) => artistCredit(config, credit)) : [];
+  if (!primary.some((credit) => credit.name)) {
+    const text = item.artist?.trim() || item.displayArtist?.trim() || "";
+    const names = text.split(/[;；、\r\n]+/u).map((name) => name.trim()).filter(Boolean);
+    primary = names.map((name) => artistCredit(config, { id: names.length === 1 ? item.artistId : void 0, name }));
+  }
+  const contributors = [];
+  for (const credit of Array.isArray(item.contributors) ? item.contributors : []) {
+    if (credit?.artist) contributors.push(artistCredit(config, credit.artist));
+  }
+  return [...primary, ...contributors];
+}
+
 // src/mappers.ts
 var array = (value) => Array.isArray(value) ? value : [];
 var art = (config, id) => id ? mediaURL(config, "getCoverArt", { id, size: 600 }) : void 0;
@@ -309,28 +356,43 @@ function releaseDate(date) {
   return [String(date.year), ...date.month ? [String(date.month).padStart(2, "0")] : [], ...date.month && date.day ? [String(date.day).padStart(2, "0")] : []].join("-");
 }
 function toArtist(config, item) {
-  return { id: String(item.id ?? ""), name: item.name || item.artist || "", imageUrl: art(config, item.coverArt), following: Boolean(item.starred) };
-}
-function artistsOf(config, item) {
-  if (array(item.artists).length) return array(item.artists).map((artist2) => toArtist(config, artist2));
-  return item.artist ? [{ id: String(item.artistId ?? ""), name: item.artist }] : [];
+  return artistCredit(config, item);
 }
 function toAlbum(config, item) {
   return {
     id: String(item.id ?? ""),
     name: item.name || item.album || "",
     imageUrl: art(config, item.coverArt),
-    artists: artistsOf(config, item),
+    artists: mergeCredits(creditsOf(config, item), ...array(item.song).flatMap((track) => [
+      creditsOf(config, { artists: track.albumArtists, displayArtist: track.displayAlbumArtist }),
+      creditsOf(config, track)
+    ])),
     released: releaseDate(item.originalReleaseDate) || releaseDate(item.releaseDate) || (item.year ? String(item.year) : void 0),
     saved: Boolean(item.starred)
   };
 }
-function toTrack(config, item) {
+function toTrack(config, item, parent) {
+  const artists = mergeCredits(creditsOf(config, item));
+  const hasAlbumArtists = array(item.albumArtists).some((artist2) => artist2?.name?.trim() || artist2?.artist?.trim());
+  const hasDisplayAlbumArtist = Boolean(item.displayAlbumArtist?.trim());
+  let albumArtists = item.artists;
+  if (hasAlbumArtists) albumArtists = item.albumArtists;
+  else if (hasDisplayAlbumArtist) albumArtists = [];
+  const album2 = parent || toAlbum(config, {
+    id: item.albumId,
+    name: item.album,
+    coverArt: item.coverArt,
+    year: item.year,
+    artists: albumArtists,
+    artist: hasAlbumArtists || hasDisplayAlbumArtist ? item.displayAlbumArtist : item.artist,
+    artistId: hasAlbumArtists || hasDisplayAlbumArtist ? void 0 : item.artistId,
+    displayArtist: item.displayAlbumArtist || item.displayArtist
+  });
   return {
     id: String(item.id),
     name: item.title || item.name || "",
-    artists: artistsOf(config, item),
-    album: toAlbum(config, { id: item.albumId, name: item.album, coverArt: item.coverArt, artist: item.artist, artistId: item.artistId, year: item.year }),
+    artists,
+    album: album2,
     duration: Math.round(Number(item.duration || 0) * 1e3),
     unavailable: Boolean(item.isVideo)
   };
@@ -498,7 +560,8 @@ async function album({ id }) {
   const config = signedConfiguration();
   const response = await request(config, "getAlbum", { id: identifier(id) });
   if (!response.album) throw fail("unavailable", t("This album is no longer available on the server. Reload the library."));
-  return { album: toAlbum(config, response.album), tracks: array(response.album.song).map((item) => toTrack(config, item)) };
+  const album2 = toAlbum(config, response.album);
+  return { album: album2, tracks: array(response.album.song).map((item) => toTrack(config, item, album2)) };
 }
 async function artist({ id }) {
   const config = signedConfiguration();
