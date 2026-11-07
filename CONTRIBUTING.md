@@ -31,7 +31,7 @@ For manual folder installs, keep `plugin.json`, `index.js` and `locales/` togeth
 
 ## Tests
 
-Node tests use local HTTP servers and the shipped bundle. Cover failures, opaque IDs, pagination, duplicates, pending requests, connection changes, ordered address attempts and credential handling. Credit tests cover large performer lists, arbitrary contributor roles, Unicode/name/ID deduplication, legacy list separators, incomplete credits, and consistent album mapping across library entrypoints. Runtime checks also verify credit aggregation and opaque artist-ID navigation through MoeJS and the official Go models.
+Node tests use local HTTP servers and the shipped bundle. Cover failures, opaque IDs, pagination, duplicates, pending requests, connection changes, ordered address attempts and credential handling. Credit tests cover large performer lists, arbitrary contributor roles, Unicode/name/ID deduplication, legacy list separators, incomplete credits, and consistent album mapping across library entrypoints. Runtime checks also verify credit aggregation, opaque artist-ID navigation, contributed albums and extended artist-catalogue paging through MoeJS and the official Go models. Artist-discovery regressions cover track-only/custom-role participants, same-name identities and unrelated title hits, authoritative album metadata, folder filters, multi-batch/bounded lookups, malformed responses, ignored offsets, legacy unsupported search, and network/authentication/deadline failures.
 
 The `test/upstream/*.go.txt` fixtures stay outside a Go module. The upstream script copies them into official MyGo's `internal/plugin`, `internal/player` and `internal/app` to access package-private APIs. Tests cover real MoeJS execution, entrypoint constraints, ZIP installation, audio decoding/seeking, and UI rendering of actual plugin responses. Audio checks serve the official host's MP3/FLAC/Vorbis test files over local HTTP through the plugin's authenticated raw URLs, then decode and seek with the unmodified host, without initializing audio hardware. UI checks cover full/bounded album lists, virtual rows, sign-in guidance, narrow/desktop widths and light/dark themes. Set `MM_FRAMES` to an existing output directory to save screenshots. Only test files are added; no host implementation is modified.
 
@@ -60,9 +60,9 @@ The plugin uses Subsonic API 1.16.1 and optional OpenSubsonic lyrics. Durations 
 
 | Feature | Endpoints |
 | --- | --- |
-| Album shelves and artist index | `getAlbumList2`, `getArtists` |
+| Album shelves and artist index | `getAlbumList2`, `getArtists`; optional `search3` artist catalogue |
 | Track, album and artist search | `search3`; account playlists are filtered locally |
-| Album and artist details | `getAlbum`, `getArtist` |
+| Album and artist details | `getAlbum`, `getArtist`; `search3` songs supplement artist participation albums |
 | Favorites | `getStarred2`, `star`, `unstar` |
 | Playlists | `getPlaylists`, `getPlaylist`, `createPlaylist`, `updatePlaylist`, `deletePlaylist` |
 | Cover art and playback | `getCoverArt`, `getSong`, `stream` |
@@ -79,13 +79,23 @@ Credits keep first-seen order, deduplicate exact opaque IDs and NFC/case/whitesp
 
 Album details combine album credits, every track's album artists and every track's credits. Each returned track references that mapped parent album while keeping its own track credits. Search, favorites and playlists prefer `albumArtists`/`displayAlbumArtist` for the embedded album, falling back to primary track artists only when album-artist metadata is absent; track contributors are not misidentified as album artists there. Album lists use only metadata supplied in that response, without fetching every album's tracks.
 
-The official MyGo artist model has no contributor-role fields, so roles are represented in one flat credit list, not a separate credits panel. Artist browse/search and each artist's discography still use server indices and `getArtist`; this does not construct a new all-library performer index or recover file tags omitted by the API.
+The official MyGo artist model has no contributor-role fields, so roles are represented in one flat credit list, not a separate credits panel. This cannot recover file tags omitted by the API.
+
+### Artist discovery and participation albums
+
+Some servers expose fewer people and releases through Subsonic than through their own web UI. In Navidrome's published implementation, `getArtists` indexes album artists; `getArtist` lists album-artist releases, with optional track-artist participation when `Subsonic.ArtistParticipations` is enabled. That option alone does not cover every custom role. The plugin does not call private web APIs or change server settings.
+
+Artist browsing retains the complete `getArtists` index and supplements it with `search3` artist batches using the catalogue query `\"\"` (two double quotes). This works on Navidrome's searchable artist catalogue and may not be supported by other servers. Exact IDs deduplicate the sources. Catalogue continuation rereads the legacy index and excludes its IDs, so legacy artists beyond a catalogue boundary do not appear twice. Explicit unsupported-feature responses retain the original index; network failures offer a retryable continuation, while authentication and malformed protocol data still fail.
+
+Artist details retain authoritative `getArtist` album metadata, then search songs by the artist's name. Search hits are only candidates: an exact server ID must occur in primary artists, explicit album artists or contributors of any role before the song's album joins the discography. Title hits, homonymous IDs and name-only credits do not prove participation. Song album IDs deduplicate releases, without fetching every album or scanning the whole song library. This relies on the server indexing the relevant names and returning their IDs in song credits; no full web-UI parity is claimed.
+
+Both catalogue batches and artist-song candidates use 500 entries per request, with a shared 8-second/5,000-entry budget and a one-item boundary probe. Artist browsing has an Additional artists continuation. The native artist-detail model has no continuation field, so excess candidate songs or incomplete enrichment produce an actionable error, never an apparently complete partial discography. Existing authoritative albums remain usable if the first optional request is offline or its budget expires; explicit unsupported search also preserves legacy results. Empty authoritative results do not turn network failures into successful empty pages. No persistent cross-account catalogue cache is used.
 
 ### List loading
 
 Album browsing and the home page's Recently added / Recently played See All links share a loader for name, artist, newest, recent and frequent sorts. Each browse collects at most 5,000 albums or 8 seconds of results before rendering. At a limit or later network failure, completed batches remain visible with a Remaining albums section; the host's native See All action opens the remainder. Subtitles distinguish complete counts from loaded counts. Authentication, permission and protocol errors still surface.
 
-Artist indices, artist/album/playlist details and playlist lists return complete server results without a client-side 50/200-item cutoff. Playlist duplicates are preserved. Track/album/artist/playlist search, liked tracks and saved albums keep the host's automatic continuation with 50-item batches.
+The legacy artist index, album/playlist details and playlist lists retain their full server results without a client-side 50/200-item cutoff. Supplemental artist catalogue and participation lookups have the explicit budgets above. Playlist duplicates are preserved. Track/album/artist/playlist search, liked tracks and saved albums keep the host's automatic continuation with 50-item batches.
 
 Official `browse()` cannot append remote results during scrolling: album browsing collects bounded results before display, rather than providing network infinite scrolling. Unpaged artist, favorite and playlist endpoints still fetch complete results; favorite and playlist-search continuation may fetch the full result again, with network and memory costs for large libraries.
 

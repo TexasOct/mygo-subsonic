@@ -16,7 +16,7 @@ import (
 func TestSubsonicBrowseUI(t *testing.T) {
 	for _, width := range []int{1200, 640} {
 		for _, dark := range []bool{false, true} {
-			for _, name := range []string{"albums", "albums-limited", "artists"} {
+			for _, name := range []string{"albums", "albums-limited", "artists", "artists-limited"} {
 				mode := "light"
 				if dark {
 					mode = "dark"
@@ -30,15 +30,33 @@ func TestSubsonicBrowseUI(t *testing.T) {
 					if err := json.Unmarshal(data, &page); err != nil {
 						t.Fatal(err)
 					}
+					continuation := "albums:newest:5000"
+					continuationTitle := "Remaining albums"
+					if name == "artists-limited" {
+						continuation = "artists:catalog:5000"
+						continuationTitle = "Additional artists"
+					}
+					bounded := name == "albums-limited" || name == "artists-limited"
 					a := newTestApp()
 					posts := posts(a)
 					a.library.browses[name] = &browseData{page: &page}
 					a.route = route{page: pageBrowse, src: "fake", id: name}
 					fake(a).browse = func(id string) (*music.Browse, error) {
-						if id != "albums:newest:5000" {
+						if id != continuation {
 							t.Errorf("unexpected continuation: %s", id)
 						}
-						return &music.Browse{Title: "Remaining albums"}, nil
+						if name == "artists-limited" {
+							data, err := os.ReadFile(filepath.Join(os.Getenv("MYGO_SUBSONIC_BROWSE_DIR"), "artists-rest.json"))
+							if err != nil {
+								t.Fatal(err)
+							}
+							var rest music.Browse
+							if err := json.Unmarshal(data, &rest); err != nil {
+								t.Fatal(err)
+							}
+							return &rest, nil
+						}
+						return &music.Browse{Title: continuationTitle}, nil
 					}
 					tt := ui.NewTester(a.view, width, 800)
 					tt.SetDark(dark)
@@ -59,7 +77,7 @@ func TestSubsonicBrowseUI(t *testing.T) {
 					if _, ok := tt.Find("Next page"); ok {
 						t.Fatal("obsolete next-page label remains")
 					}
-					if name == "albums-limited" {
+					if bounded {
 						button, ok := tt.Find("See All")
 						if !ok {
 							t.Fatal("missing bounded-list continuation")
@@ -67,8 +85,8 @@ func TestSubsonicBrowseUI(t *testing.T) {
 						if button.W > 120 || button.H > 48 {
 							t.Fatalf("continuation is not compact: %+v", button)
 						}
-						if _, ok := tt.Find("Remaining albums"); !ok {
-							t.Fatal("missing remaining-albums title")
+						if _, ok := tt.Find(continuationTitle); !ok {
+							t.Fatal("missing continuation title")
 						}
 					} else {
 						if _, ok := tt.Find("See All"); ok {
@@ -76,7 +94,7 @@ func TestSubsonicBrowseUI(t *testing.T) {
 						}
 						label := "Album 650"
 						if name == "artists" {
-							label = "Artist 550"
+							label = "Artist 551"
 						}
 						if _, ok := tt.Find(label); !ok {
 							t.Fatalf("last item is not reachable: %s", label)
@@ -85,14 +103,20 @@ func TestSubsonicBrowseUI(t *testing.T) {
 					if dir := os.Getenv("MM_FRAMES"); dir != "" {
 						saveFrame(t, dir, name+"-"+mode+"-"+strconv.Itoa(width)+".png", tt.Image())
 					}
-					if name == "albums-limited" {
+					if bounded {
 						if err := tt.Click("See All"); err != nil {
 							t.Fatal(err)
 						}
-						if a.route != (route{page: pageBrowse, src: "fake", id: "albums:newest:5000"}) {
+						if a.route != (route{page: pageBrowse, src: "fake", id: continuation}) {
 							t.Fatalf("wrong continuation route: %+v", a.route)
 						}
 						runPost(t, posts)
+						if name == "artists-limited" {
+							settled(tt)
+							if _, ok := tt.Find("Artist 5001"); !ok {
+								t.Fatal("artist continuation did not display the remaining participant")
+							}
+						}
 					}
 				})
 			}

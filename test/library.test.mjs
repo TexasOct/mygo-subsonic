@@ -31,7 +31,7 @@ test("search isolates counts, encodes queries and handles opaque IDs and millise
 test("album and artist pages map release dates, images and multi-artist credits", async (t) => {
   const f = await fixture(t, { handler: ({ method }) => method === "getAlbum" ? {
     album: { id: "album", name: "Title", coverArt: "art &+", originalReleaseDate: { year: 2024, month: 3, day: 9 }, artists: [{ id: "a", name: "A" }, { id: "b", name: "B" }], song: [song("s")] },
-  } : { artist: { id: "a", name: "A", album: [{ id: "album", name: "Title", year: 2024 }] } } });
+  } : method === "getArtist" ? { artist: { id: "a", name: "A", album: [{ id: "album", name: "Title", year: 2024 }] } } : { searchResult3: {} } });
   await f.plugin.signIn();
   const result = await f.plugin.album({ id: "album" });
   assert.equal(result.album.released, "2024-03-09");
@@ -90,7 +90,8 @@ test("album continuation stops correctly on empty and exact batch boundaries", a
 // The unpaged artist index is rendered once by the host's virtualized grid.
 test("artist browsing returns the complete index without artificial pagination", async (t) => {
   const artists = Array.from({ length: 551 }, (_, i) => ({ id: `ar${i}`, name: `Artist ${i}` }));
-  const f = await fixture(t, { handler: () => ({ artists: { index: [{ artist: artists.slice(0, 250) }, { artist: artists.slice(250) }] } }) });
+  const f = await fixture(t, { handler: ({ method }) => method === "getArtists"
+    ? { artists: { index: [{ artist: artists.slice(0, 250) }, { artist: artists.slice(250) }] } } : { searchResult3: {} } });
   await f.plugin.signIn();
   const result = await f.plugin.browse({ page: "artists:0" });
   assert.equal(result.sections.length, 1);
@@ -98,12 +99,13 @@ test("artist browsing returns the complete index without artificial pagination",
   assert.equal(result.sections[0].artists.at(-1).id, "ar550");
   assert.equal(result.sections[0].morePage, undefined);
   assert.equal(result.sections[0].links, undefined);
-  assert.equal(f.calls.at(-1).method, "getArtists");
+  assert.ok(f.calls.some(({ method }) => method === "getArtists"));
+  assert.equal(f.calls.at(-1).params.get("query"), '\"\"');
   // Old continuation links still open the remaining index rather than breaking.
   const oldLink = await f.plugin.browse({ page: "artists:50" });
   assert.equal(oldLink.sections[0].artists[0].id, "ar50");
   assert.equal(oldLink.sections[0].artists.length, 501);
-  f.handle(() => ({ artists: {} }));
+  f.handle(({ method }) => method === "getArtists" ? { artists: {} } : { searchResult3: {} });
   const empty = await f.plugin.browse({ page: "artists:0" });
   assert.deepEqual(empty.sections, [{ artists: [] }]);
 });

@@ -103,7 +103,7 @@ test("credits deduplicate IDs and normalized names while retaining distinct arti
   assert.deepEqual(credits(result.tracks[0].artists), [["effy/+&", "ÉFFY"], ["first", "Same Name"], ["second", "Same Name"], ["", "Session   Player"]]);
   assert.equal(new URL(result.tracks[0].artists[0].imageUrl).searchParams.get("id"), "effy-art");
   await f.plugin.artist({ id: result.tracks[0].artists[0].id });
-  assert.equal(f.calls.at(-1).params.get("id"), "effy/+&");
+  assert.equal(f.calls.findLast(({ method }) => method === "getArtist").params.get("id"), "effy/+&");
 });
 
 // Older servers omit credits and partial OpenSubsonic lists can contain empty entries.

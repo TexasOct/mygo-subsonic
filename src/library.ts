@@ -6,6 +6,7 @@ import { array, toAlbum, toArtist, toPlaylist, toTrack } from "./mappers.js";
 import { folder, identifier, offsetOf, pageOf, PAGE_SIZE } from "./paging.js";
 
 import { browseAlbums } from "./album-browse.js";
+import { artistAlbums, browseArtists } from "./artist-library.js";
 
 const ALBUM_TYPES = new Set(["newest", "recent", "frequent", "alphabeticalByName", "alphabeticalByArtist"]);
 
@@ -36,14 +37,9 @@ export async function browse({ page }: { page: string }): Promise<Browse> {
     const offset = offsetOf(Number(parts[2]));
     return browseAlbums(config, parts[1], offset);
   }
-  if (parts[0] === "artists" && parts.length === 2) {
-    const offset = offsetOf(Number(parts[1]));
-    const response = await request(config, "getArtists", folder(config));
-    const items = array(response.artists?.index).flatMap((index) => array(index.artist));
-    // getArtists already returns the whole index. Let the host virtualize it
-    // rather than making users navigate artificial client-side pages.
-    // Nonzero offsets keep previously opened continuation links usable.
-    return { title: t("Artists"), sections: [{ artists: items.slice(offset).map((item) => toArtist(config, item)) }] };
+  if (parts[0] === "artists" && parts.length === 2) return browseArtists(config, offsetOf(Number(parts[1])));
+  if (parts[0] === "artists" && parts.length === 3 && parts[1] === "catalog") {
+    return browseArtists(config, offsetOf(Number(parts[2])), "catalog");
   }
   throw fail("unavailable", t("This library page is not available. Open Albums or Artists from the sidebar."));
 }
@@ -88,8 +84,10 @@ export async function album({ id }: { id: string }) {
 
 export async function artist({ id }: { id: string }) {
   const config = signedConfiguration();
-  const response = await request(config, "getArtist", { id: identifier(id) });
+  const deadline = Date.now() + 8000;
+  const response = await request(config, "getArtist", { id: identifier(id) }, { deadline });
   if (!response.artist) throw fail("unavailable", t("This artist is no longer available on the server. Reload the library."));
-  // Do not require the optional getTopSongs endpoint to open an artist page.
-  return { artist: toArtist(config, response.artist), albums: array(response.artist.album).map((item) => toAlbum(config, item)), tracks: [] };
+  // getArtist can contain only album-artist releases, even when the same
+  // server's web UI lists this artist's track/performer contributions.
+  return { artist: toArtist(config, response.artist), albums: await artistAlbums(config, response.artist, deadline), tracks: [] };
 }

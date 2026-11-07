@@ -484,6 +484,139 @@ async function browseAlbums(config, type, offset) {
   return { title: t("Albums"), subtitle, sections };
 }
 
+// src/artist-library.ts
+var BATCH_SIZE2 = 500;
+var MAX_ENTRIES = 5e3;
+var LOAD_BUDGET_MS2 = 8e3;
+function unsupportedSearch(config, error) {
+  assertCurrent(config);
+  return error instanceof PluginError && (error.code === "unsupported" || [10, 20, 30].includes(error.subsonicCode ?? -1) || [404, 405, 501].includes(error.httpStatus ?? -1));
+}
+function searchResult(response) {
+  const result = response.searchResult3;
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    throw fail("server", t("The server returned incomplete Subsonic data. Check its API support."));
+  }
+  return result;
+}
+async function browseArtists(config, offset, source = "index") {
+  const deadline = Date.now() + LOAD_BUDGET_MS2;
+  const response = await request(config, "getArtists", folder(config), { deadline });
+  const indexed = array(response.artists?.index).flatMap((index) => array(index.artist)).map((item) => toArtist(config, item));
+  const indexedIds = new Set(indexed.map((artist2) => artist2.id));
+  let artists = source === "index" ? indexed : [];
+  const seen = /* @__PURE__ */ new Set();
+  let next = source === "catalog" ? offset : 0;
+  let more = false;
+  let consumed = 0;
+  while (true) {
+    if (Date.now() >= deadline) {
+      more = true;
+      break;
+    }
+    const count = consumed >= MAX_ENTRIES ? 1 : Math.min(BATCH_SIZE2, MAX_ENTRIES - consumed);
+    let batch;
+    try {
+      const response2 = await request(config, "search3", {
+        query: '""',
+        artistCount: count,
+        artistOffset: next,
+        albumCount: 0,
+        songCount: 0,
+        ...folder(config)
+      }, { deadline });
+      const items = searchResult(response2).artist;
+      if (items !== void 0 && !Array.isArray(items)) throw fail("server", t("The server returned incomplete Subsonic data. Check its API support."));
+      batch = array(items);
+    } catch (error) {
+      if (unsupportedSearch(config, error)) break;
+      if (!(error instanceof PluginError) || error.code !== "network") throw error;
+      more = true;
+      break;
+    }
+    if (batch.length > count) throw fail("server", t("The server returned more artists than requested. Check its Subsonic paging support."));
+    if (consumed >= MAX_ENTRIES) {
+      more = batch.length > 0;
+      break;
+    }
+    if (!batch.length) break;
+    if (batch.some((item) => !item?.id)) throw fail("server", t("The server returned an artist without an ID. Check its Subsonic API support."));
+    const fresh = batch.filter((item) => !seen.has(String(item.id)));
+    if (!fresh.length) throw fail("server", t("The server keeps returning the same artists. Check its Subsonic paging support."));
+    for (const item of fresh) {
+      const id = String(item.id);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      if (!indexedIds.has(id)) artists.push(toArtist(config, item));
+    }
+    next += batch.length;
+    consumed += batch.length;
+    if (batch.length < count) break;
+  }
+  assertCurrent(config);
+  artists = mergeCredits(artists);
+  const sections = [{ artists: source === "catalog" ? artists : artists.slice(offset) }];
+  if (more) sections.push({ title: t("Additional artists"), morePage: `artists:catalog:${next}` });
+  return { title: t("Artists"), sections };
+}
+function creditsArtist(config, song, artist2) {
+  const credits = mergeCredits(creditsOf(config, song), creditsOf(config, { artists: song.albumArtists, displayArtist: song.displayAlbumArtist }));
+  return Boolean(artist2.id) && credits.some((credit) => credit.id === artist2.id);
+}
+async function artistAlbums(config, item, deadline) {
+  const albums = /* @__PURE__ */ new Map();
+  for (const album2 of array(item.album)) {
+    if (album2.id && !albums.has(String(album2.id))) albums.set(String(album2.id), toAlbum(config, album2));
+  }
+  const artist2 = toArtist(config, item);
+  if (!artist2.name) return [...albums.values()];
+  const authoritative = [...albums.values()];
+  const seen = /* @__PURE__ */ new Set();
+  let offset = 0;
+  while (true) {
+    if (Date.now() >= deadline) {
+      assertCurrent(config);
+      if (!offset && authoritative.length) return authoritative;
+      throw fail("network", t("Artist contributions could not be fully loaded. Try again or search for a specific album."));
+    }
+    const count = offset >= MAX_ENTRIES ? 1 : Math.min(BATCH_SIZE2, MAX_ENTRIES - offset);
+    let batch;
+    try {
+      const response = await request(config, "search3", {
+        query: artist2.name,
+        songCount: count,
+        songOffset: offset,
+        artistCount: 0,
+        albumCount: 0,
+        ...folder(config)
+      }, { deadline });
+      const songs = searchResult(response).song;
+      if (songs !== void 0 && !Array.isArray(songs)) throw fail("server", t("The server returned incomplete Subsonic data. Check its API support."));
+      batch = array(songs);
+    } catch (error) {
+      if (unsupportedSearch(config, error)) return authoritative;
+      if (!offset && authoritative.length && error instanceof PluginError && error.code === "network") return authoritative;
+      throw error;
+    }
+    if (batch.length > count) throw fail("server", t("The server returned more songs than requested. Check its Subsonic paging support."));
+    if (offset >= MAX_ENTRIES && batch.length) throw fail("unavailable", t("There are too many artist search matches. Search for a specific album instead."));
+    if (!batch.length) break;
+    if (batch.some((song) => !song?.id)) throw fail("server", t("The server returned a song without an ID. Check its Subsonic API support."));
+    if (!batch.some((song) => !seen.has(String(song.id)))) throw fail("server", t("The server keeps returning the same songs. Check its Subsonic paging support."));
+    for (const song of batch) {
+      if (seen.has(String(song.id))) continue;
+      seen.add(String(song.id));
+      if (!song.albumId || !creditsArtist(config, song, artist2)) continue;
+      const album2 = toTrack(config, song).album;
+      if (!albums.has(album2.id)) albums.set(album2.id, album2);
+    }
+    offset += batch.length;
+    if (batch.length < count) break;
+  }
+  assertCurrent(config);
+  return [...albums.values()];
+}
+
 // src/library.ts
 var ALBUM_TYPES = /* @__PURE__ */ new Set(["newest", "recent", "frequent", "alphabeticalByName", "alphabeticalByArtist"]);
 async function albumList(config, type, offset = 0, size = 12) {
@@ -513,11 +646,9 @@ async function browse({ page }) {
     const offset = offsetOf(Number(parts[2]));
     return browseAlbums(config, parts[1], offset);
   }
-  if (parts[0] === "artists" && parts.length === 2) {
-    const offset = offsetOf(Number(parts[1]));
-    const response = await request(config, "getArtists", folder(config));
-    const items = array(response.artists?.index).flatMap((index) => array(index.artist));
-    return { title: t("Artists"), sections: [{ artists: items.slice(offset).map((item) => toArtist(config, item)) }] };
+  if (parts[0] === "artists" && parts.length === 2) return browseArtists(config, offsetOf(Number(parts[1])));
+  if (parts[0] === "artists" && parts.length === 3 && parts[1] === "catalog") {
+    return browseArtists(config, offsetOf(Number(parts[2])), "catalog");
   }
   throw fail("unavailable", t("This library page is not available. Open Albums or Artists from the sidebar."));
 }
@@ -565,9 +696,10 @@ async function album({ id }) {
 }
 async function artist({ id }) {
   const config = signedConfiguration();
-  const response = await request(config, "getArtist", { id: identifier(id) });
+  const deadline = Date.now() + 8e3;
+  const response = await request(config, "getArtist", { id: identifier(id) }, { deadline });
   if (!response.artist) throw fail("unavailable", t("This artist is no longer available on the server. Reload the library."));
-  return { artist: toArtist(config, response.artist), albums: array(response.artist.album).map((item) => toAlbum(config, item)), tracks: [] };
+  return { artist: toArtist(config, response.artist), albums: await artistAlbums(config, response.artist, deadline), tracks: [] };
 }
 
 // src/favorites.ts

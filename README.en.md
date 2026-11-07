@@ -58,10 +58,11 @@ HTTP, HTTPS, ports and subpaths are supported. Only use trusted addresses for th
 
 - One server and one account at a time. Clear the old playback queue and reload music before switching servers or accounts.
 - Multiple artists and server-supplied performers, composers, lyricists, arrangers and other contributors are included in credits. Album details aggregate and deduplicate credits across all tracks. Credits without an artist ID are plain text. Tags not exposed by the server API cannot be recovered; MyGo displays a single credit list rather than separate role columns.
+- Artist browsing adds track artists and other participants from the server's searchable artist catalogue. Artist pages recover contributed albums by verifying actual artist IDs in matching songs, rather than relying only on the album-artist index. This requires searchable songs and real credit IDs from the API; it does not guarantee parity with private web APIs.
 - MP3, FLAC and Ogg Vorbis play as original files, even with standard or high quality selected. FLAC stays lossless.
 - Official MyGo has no decoder for WAV, AAC, ALAC, Opus and some other formats. Only those formats request server-side MP3 conversion (up to 128 kbps for standard, 320 kbps otherwise), requiring server configuration and permissions. Missing or conflicting format metadata causes an error, not automatic lossy conversion.
 - LAN / public address fallback does not guarantee seamless switching for a track already playing.
-- Large libraries may load in sections. Use **See All** under **Remaining albums** to continue.
+- Large libraries may load in sections. Use **See All** under **Remaining albums** or **Additional artists** to continue. If an artist's candidate songs exceed the lookup limit or cannot be fully loaded, the page asks you to retry or search for a specific album instead of presenting a failed lookup as an empty discography.
 - You can only edit your own playlists. Removing a track removes every occurrence of that track in the playlist.
 - **MyGo displays and stores passwords as plain text.** Use a dedicated low-privilege account and HTTPS outside trusted networks. Do not share settings screenshots or authenticated audio/artwork URLs. See the [security notes](SECURITY.md).
 

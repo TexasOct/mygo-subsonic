@@ -51,7 +51,10 @@ func TestSubsonicRuntime(t *testing.T) {
 		switch strings.TrimPrefix(r.URL.Path, "/music/rest/") {
 		case "ping.view":
 		case "search3.view":
-			response["searchResult3"] = map[string]any{"song": []any{map[string]any{"id": "opaque/1", "title": r.Form.Get("query"), "duration": 1.25, "albumId": "album"}}}
+			response["searchResult3"] = map[string]any{"song": []any{map[string]any{
+				"id": "opaque/1", "title": r.Form.Get("query"), "duration": 1.25, "albumId": "album",
+				"contributors": []any{map[string]any{"role": "custom performer", "artist": map[string]any{"id": "effy/+&", "name": "ÉFFY"}}},
+			}}}
 		case "getSong.view":
 			response["song"] = map[string]any{"id": "opaque/1", "suffix": "flac", "size": 123, "title": "Song", "artist": "Artist"}
 		case "getLyrics.view":
@@ -120,8 +123,8 @@ func TestSubsonicRuntime(t *testing.T) {
 		t.Fatalf("track credits: %+v", album.Tracks)
 	}
 	artist, err := p.Artist(album.Album.Artists[1].ID)
-	if err != nil || artist.Artist.ID != "effy/+&" {
-		t.Fatalf("artist navigation: %+v %v", artist, err)
+	if err != nil || artist.Artist.ID != "effy/+&" || len(artist.Albums) != 1 || artist.Albums[0].ID != "album" {
+		t.Fatalf("artist navigation and participation: %+v %v", artist, err)
 	}
 	for _, quality := range []string{"standard", "high", "lossless"} {
 		stream, err := p.Stream("opaque/1", quality)
@@ -236,6 +239,7 @@ func TestSubsonicSignInPrompts(t *testing.T) {
 // Complete bounded grids must survive the sandbox without artificial page breaks.
 func TestSubsonicBrowse(t *testing.T) {
 	albumCount := 651
+	catalogueCount := 552
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.ParseForm()
 		response := map[string]any{"status": "ok", "version": "1.16.1"}
@@ -257,7 +261,21 @@ func TestSubsonicBrowse(t *testing.T) {
 			for i := 0; i < 551; i++ {
 				artists = append(artists, map[string]any{"id": "ar" + strconv.Itoa(i), "name": "Artist " + strconv.Itoa(i)})
 			}
+			if catalogueCount > 5000 {
+				artists = append(artists, map[string]any{"id": "ar5000", "name": "Artist 5000"})
+			}
 			response["artists"] = map[string]any{"index": []any{map[string]any{"artist": artists}}}
+		case "/rest/search3.view":
+			if r.Form.Get("query") != `""` || r.Form.Get("songCount") != "0" || r.Form.Get("albumCount") != "0" {
+				t.Errorf("unexpected catalogue request: %v", r.Form)
+			}
+			var artists []any
+			offset, _ := strconv.Atoi(r.Form.Get("artistOffset"))
+			size, _ := strconv.Atoi(r.Form.Get("artistCount"))
+			for i := offset; i < min(offset+size, catalogueCount); i++ {
+				artists = append(artists, map[string]any{"id": "ar" + strconv.Itoa(i), "name": "Artist " + strconv.Itoa(i)})
+			}
+			response["searchResult3"] = map[string]any{"artist": artists}
 		default:
 			t.Errorf("unexpected browse method: %s", r.URL.Path)
 		}
@@ -294,7 +312,7 @@ func TestSubsonicBrowse(t *testing.T) {
 		t.Fatalf("last page: %+v %v", last, err)
 	}
 	artists, err := p.Browse("artists:0")
-	if err != nil || len(artists.Sections) != 1 || len(artists.Sections[0].Artists) != 551 || artists.Sections[0].MorePage != "" {
+	if err != nil || len(artists.Sections) != 1 || len(artists.Sections[0].Artists) != 552 || artists.Sections[0].MorePage != "" {
 		t.Fatalf("artist index: %+v %v", artists, err)
 	}
 	albumCount = 5001
@@ -302,9 +320,18 @@ func TestSubsonicBrowse(t *testing.T) {
 	if err != nil || len(limited.Sections) != 2 || len(limited.Sections[0].Albums) != 5000 || limited.Sections[1].Title != "Remaining albums" || limited.Sections[1].MorePage != "albums:newest:5000" {
 		t.Fatalf("bounded album index: %+v %v", limited, err)
 	}
+	catalogueCount = 5002
+	limitedArtists, err := p.Browse("artists:0")
+	if err != nil || len(limitedArtists.Sections) != 2 || len(limitedArtists.Sections[0].Artists) != 5001 || limitedArtists.Sections[1].MorePage != "artists:catalog:5000" {
+		t.Fatalf("bounded artist catalogue: %+v %v", limitedArtists, err)
+	}
+	restArtists, err := p.Browse("artists:catalog:5000")
+	if err != nil || len(restArtists.Sections) != 1 || len(restArtists.Sections[0].Artists) != 1 || restArtists.Sections[0].Artists[0].ID != "ar5001" {
+		t.Fatalf("artist catalogue continuation: %+v %v", restArtists, err)
+	}
 	// Export actual sandbox responses for the separate official UI test package.
 	if dir := os.Getenv("MYGO_SUBSONIC_BROWSE_DIR"); dir != "" {
-		for name, page := range map[string]*music.Browse{"albums": albums, "albums-limited": limited, "artists": artists} {
+		for name, page := range map[string]*music.Browse{"albums": albums, "albums-limited": limited, "artists": artists, "artists-limited": limitedArtists, "artists-rest": restArtists} {
 			data, err := json.Marshal(page)
 			if err != nil {
 				t.Fatal(err)

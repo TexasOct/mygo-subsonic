@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.5
+
+- Supplement the album-artist index with the server's searchable artist catalogue, exposing track-only singers and other participants where supported. Deduplicate opaque IDs, preserve legacy offset links and provide a bounded Additional artists continuation without repeating legacy-index artists.
+- Recover artist participation albums omitted by `getArtist`: search candidate songs by name, require the exact artist ID in primary/album artists or contributors of any role, and deduplicate their releases while retaining authoritative album metadata. Avoid title matches, homonymous artists, fabricated identities and per-album/full-library scans.
+- Bound discovery by time and batch count; reject malformed/repeated paging and report incomplete or excessive artist lookups rather than showing false-empty or truncated discographies. Preserve compatible legacy results on explicitly unsupported search and existing releases when the first optional request is offline.
+- Add HTTP/bundle and pristine official-host regressions for custom participants, extended catalogues and actual continuation UI. Document why Subsonic role scopes can differ from the server web UI and where API/search metadata still limits discovery.
+
 ## 0.1.4
 
 - Include OpenSubsonic contributors of every role in artist credits, including performers/instruments, composers, lyricists, arrangers and custom roles. Aggregate credits across every track on album detail pages, without an artist-count cutoff.
