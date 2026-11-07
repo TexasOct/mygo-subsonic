@@ -12,7 +12,7 @@ Listen to your Subsonic library in [MyGo Music](https://github.com/egoist/mygo-m
 | Music server | Subsonic / OpenSubsonic-compatible servers with API 1.16.1 and the endpoints you use |
 | Library | Browse and search tracks, albums, artists and playlists; cover art and lyrics |
 | Favorites and playlists | Like tracks, save albums, star artists; create, edit, reorder and delete your own playlists |
-| Playback | Quality selection and optional listening history sent to your server |
+| Playback | Original audio first, direct lossless FLAC, and optional listening history sent to your server |
 
 Navidrome, Gonic and original Subsonic are examples of these servers, but have not been individually tested with this plugin. Available features depend on the server.
 
@@ -57,7 +57,8 @@ HTTP, HTTPS, ports and subpaths are supported. Only use trusted addresses for th
 ## Things to know
 
 - One server and one account at a time. Clear the old playback queue and reload music before switching servers or accounts.
-- Standard quality requests MP3 up to 128 kbps; high requests MP3 up to 320 kbps. Lossless can play FLAC directly; some other formats fall back to MP3. Transcoding needs server configuration and permissions.
+- MP3, FLAC and Ogg Vorbis play as original files, even with standard or high quality selected. FLAC stays lossless.
+- Official MyGo has no decoder for WAV, AAC, ALAC, Opus and some other formats. Only those formats request server-side MP3 conversion (up to 128 kbps for standard, 320 kbps otherwise), requiring server configuration and permissions. Missing or conflicting format metadata causes an error, not automatic lossy conversion.
 - LAN / public address fallback does not guarantee seamless switching for a track already playing.
 - Large libraries may load in sections. Use **See All** under **Remaining albums** to continue.
 - You can only edit your own playlists. Removing a track removes every occurrence of that track in the playlist.

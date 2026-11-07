@@ -208,9 +208,6 @@ async function request(config, method, values = {}, options = {}) {
     clearTimeout(timer);
   }
 }
-async function prepareMedia(config) {
-  await request(config, "ping", {}, { refreshRoute: true });
-}
 async function send(config, base, method, values, timeout2) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout2);
@@ -622,24 +619,103 @@ function movePlaylistTrack({ id, from, to }) {
 }
 
 // src/playback.ts
+var suffixFormats = /* @__PURE__ */ new Map([
+  ["mp3", "mp3"],
+  ["flac", "flac"],
+  ["ogg", "ogg"],
+  ["oga", "ogg"],
+  ["wav", "transcode"],
+  ["wave", "transcode"],
+  ["aac", "transcode"],
+  ["m4a", "transcode"],
+  ["mp4", "transcode"],
+  ["alac", "transcode"],
+  ["opus", "transcode"],
+  ["aif", "transcode"],
+  ["aiff", "transcode"],
+  ["ape", "transcode"],
+  ["wv", "transcode"],
+  ["wma", "transcode"],
+  ["mp1", "transcode"],
+  ["mp2", "transcode"]
+]);
+var mimeFormats = /* @__PURE__ */ new Map([
+  ["audio/mpeg", "mp3"],
+  ["audio/mp3", "mp3"],
+  ["audio/flac", "flac"],
+  ["audio/x-flac", "flac"],
+  ["audio/ogg", "ogg"],
+  ["application/ogg", "ogg"],
+  ["audio/vorbis", "ogg"],
+  ["audio/wav", "transcode"],
+  ["audio/wave", "transcode"],
+  ["audio/x-wav", "transcode"],
+  ["audio/vnd.wave", "transcode"],
+  ["audio/aac", "transcode"],
+  ["audio/x-aac", "transcode"],
+  ["audio/mp4", "transcode"],
+  ["audio/x-m4a", "transcode"],
+  ["audio/alac", "transcode"],
+  ["audio/opus", "transcode"],
+  ["audio/aiff", "transcode"],
+  ["audio/x-aiff", "transcode"],
+  ["audio/x-ape", "transcode"],
+  ["audio/x-wavpack", "transcode"],
+  ["audio/x-ms-wma", "transcode"]
+]);
+function sourceFormat(suffix, contentType) {
+  suffix = suffix.trim().toLowerCase();
+  const extension = suffixFormats.get(suffix);
+  const mime = contentType.split(";")[0]?.trim().toLowerCase() || "";
+  const media = mimeFormats.get(mime);
+  if (mime && mime !== "application/octet-stream" && !media) return unknownFormat();
+  const codec = /\bcodecs\s*=\s*"?([^";]+)/i.exec(contentType)?.[1]?.trim().toLowerCase();
+  if ((suffix === "mp1" || suffix === "mp2") && mime === "audio/mpeg") {
+    if (codec && codec !== suffix) return unknownFormat();
+    return "transcode";
+  }
+  if (suffix === "opus" && media === "ogg" || extension === "ogg" && mime === "audio/opus") {
+    if (codec && codec !== "opus") return unknownFormat();
+    return "transcode";
+  }
+  if ((media === "ogg" || extension === "ogg") && codec) {
+    if (["opus", "flac", "speex"].includes(codec)) {
+      if (extension && extension !== "ogg") return unknownFormat();
+      if (media && media !== "ogg") return unknownFormat();
+      return "transcode";
+    }
+    if (codec !== "vorbis") return unknownFormat();
+  }
+  if (codec && (extension === "flac" || media === "flac") && codec !== "flac") {
+    return unknownFormat();
+  }
+  if (codec && (extension === "mp3" || media === "mp3") && codec !== "mp3") {
+    return unknownFormat();
+  }
+  if (extension && media && extension !== media) return unknownFormat();
+  const format = extension ?? media;
+  if (!format) return unknownFormat();
+  return format;
+}
+function unknownFormat() {
+  throw fail("unsupported", t("The server did not identify this audio format reliably. Check the track's format metadata; it will not be transcoded automatically."));
+}
 async function stream({ id, quality = "high" }) {
   const config = signedConfiguration();
   id = identifier(id);
-  if (quality === "lossless") {
-    const response = await request(config, "getSong", { id }, { refreshRoute: true });
-    const song = response.song;
-    if (!song || song.isVideo) throw fail("unavailable", t("This item is missing or is a video. Only audio tracks can be played."));
-    const suffix = String(song.suffix || "").toLowerCase();
-    const opus = String(song.contentType || "").toLowerCase().includes("opus");
-    if ((suffix === "mp3" || suffix === "flac" || suffix === "ogg") && !opus) {
-      const result = { url: mediaURL(config, "stream", { id, format: "raw" }), type: suffix, quality: suffix === "flac" ? "lossless" : "high" };
-      if (song.size && song.size > 0) result.size = song.size;
-      if (song.bitRate && song.bitRate > 0) result.bitRate = song.bitRate;
-      return result;
-    }
-    quality = "high";
-  } else {
-    await prepareMedia(config);
+  const response = await request(config, "getSong", { id }, { refreshRoute: true });
+  const song = response.song;
+  if (!song || song.isVideo) throw fail("unavailable", t("This item is missing or is a video. Only audio tracks can be played."));
+  const format = sourceFormat(String(song.suffix || ""), String(song.contentType || ""));
+  if (format !== "transcode") {
+    const result = {
+      url: mediaURL(config, "stream", { id, format: "raw" }),
+      type: format,
+      quality: format === "flac" ? "lossless" : "high"
+    };
+    if (song.size && song.size > 0) result.size = song.size;
+    if (song.bitRate && song.bitRate > 0) result.bitRate = song.bitRate;
+    return result;
   }
   const bitRate = quality === "standard" ? 128 : 320;
   return {

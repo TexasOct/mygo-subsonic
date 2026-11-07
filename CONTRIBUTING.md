@@ -33,7 +33,7 @@ For manual folder installs, keep `plugin.json`, `index.js` and `locales/` togeth
 
 Node tests use local HTTP servers and the shipped bundle. Cover failures, opaque IDs, pagination, duplicates, pending requests, connection changes, ordered address attempts and credential handling.
 
-The `test/upstream/*.go.txt` fixtures stay outside a Go module. The upstream script copies them into official MyGo's `internal/plugin` and `internal/app` to access package-private APIs. Tests cover real MoeJS execution, entrypoint constraints, ZIP installation, and UI rendering of actual plugin responses. UI checks cover full/bounded album lists, virtual rows, sign-in guidance, narrow/desktop widths and light/dark themes. Set `MM_FRAMES` to an existing output directory to save screenshots. Only test files are added; no host implementation is modified.
+The `test/upstream/*.go.txt` fixtures stay outside a Go module. The upstream script copies them into official MyGo's `internal/plugin`, `internal/player` and `internal/app` to access package-private APIs. Tests cover real MoeJS execution, entrypoint constraints, ZIP installation, audio decoding/seeking, and UI rendering of actual plugin responses. Audio checks serve the official host's MP3/FLAC/Vorbis test files over local HTTP through the plugin's authenticated raw URLs, then decode and seek with the unmodified host, without initializing audio hardware. UI checks cover full/bounded album lists, virtual rows, sign-in guidance, narrow/desktop widths and light/dark themes. Set `MM_FRAMES` to an existing output directory to save screenshots. Only test files are added; no host implementation is modified.
 
 Check every list entrypoint when changing browsing: all album sorts, home See All links, artists, all search kinds, liked tracks, saved albums, playlist lists and detail pages. Keep native automatic continuation where it exists. Album collection has one shared time/item budget; a concurrent route probe must not extend a caller's deadline. Do not describe all host grids as virtualized or add indefinite full-library loads.
 
@@ -65,7 +65,7 @@ The plugin uses Subsonic API 1.16.1 and optional OpenSubsonic lyrics. Durations 
 | Album and artist details | `getAlbum`, `getArtist` |
 | Favorites | `getStarred2`, `star`, `unstar` |
 | Playlists | `getPlaylists`, `getPlaylist`, `createPlaylist`, `updatePlaylist`, `deletePlaylist` |
-| Cover art and playback | `getCoverArt`, `stream` |
+| Cover art and playback | `getCoverArt`, `getSong`, `stream` |
 | Lyrics | `getLyrics`; OpenSubsonic `getLyricsBySongId` is tried first when available |
 | Opt-in listening history | `scrobble`, triggered by MyGo's played event, not track completion |
 
@@ -83,11 +83,12 @@ The host virtualizes album browsing, artist indices and track lists. Album/artis
 
 ### Playback and playlist limits
 
-- `standard` requests MP3 up to 128 kbps; `high` requests MP3 up to 320 kbps.
-- `lossless` streams raw FLAC. Raw MP3 and Ogg Vorbis are reported as high, not lossless. AAC, ALAC, WAV, Opus and other codecs fall back to high MP3. Opus detection depends on server metadata; MyGo's Ogg decoder only supports Vorbis.
-- Transcoding and permissions belong to the server. `maxBitRate` is an upper-bound request, not a guarantee.
+- Every quality preference reads `getSong` and requests `format=raw` for MP3, native FLAC and Ogg Vorbis, without `maxBitRate` or estimated transcode size. FLAC is reported as lossless; MP3/Vorbis as high. Original byte size and bitrate are retained when supplied.
+- Official MyGo's `openStream` recognizes native FLAC and Ogg Vorbis, then otherwise tries MP3; it has no WAV/PCM, AAC, ALAC, Opus, AIFF or other decoder. Only known formats lacking a decoder request MP3: up to 128 kbps for `standard`, 320 kbps otherwise, never reported as lossless or with the original byte size. Asking for FLAC conversion is not a portable Subsonic lossless-conversion guarantee.
+- Format classification uses suffix, MIME and any codec parameter, not the server's transcoded metadata. Missing, unknown or conflicting format metadata is rejected instead of silently requesting lossy conversion. Ogg without a codec parameter is treated as Vorbis; distinguishing Opus/FLAC/Speex in that container depends on accurate server metadata.
+- Transcoding and permissions belong to the server. `maxBitRate` is an upper-bound request, not a guarantee; `format=raw` asks the server to disable transcoding.
 - Playlist writes require `owner` to exactly match the username. Removal by track ID deletes all matching occurrences; reorder preserves duplicates. Local edits to a playlist are serialized, but external clients may still conflict because the protocol has no conditional updates.
-- Mock and official-runtime tests do not certify live Navidrome, Gonic or original Subsonic deployments, or actual audio decoding/transcoding.
+- Mock and official-runtime tests, including local audio decoding checks, do not certify live Navidrome, Gonic or original Subsonic deployments or their transcoding configuration.
 
 ## Release checklist
 

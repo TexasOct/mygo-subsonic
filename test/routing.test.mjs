@@ -13,7 +13,7 @@ const endpoint = (call) => call.url.pathname.split("/").at(-3);
 test("ordered HTTP addresses fail over and pin stream/cover URLs", async (t) => {
   const f = await fixture(t, { interceptPing: true });
   addresses(f);
-  f.handle((call) => endpoint(call) === "lan" ? { httpStatus: 503 } : call.method === "search3" ? { searchResult3: { song: [song("same", { coverArt: "cover" })] } } : {});
+  f.handle((call) => endpoint(call) === "lan" ? { httpStatus: 503 } : call.method === "search3" ? { searchResult3: { song: [song("same", { coverArt: "cover" })] } } : call.method === "getSong" ? { song: song("same") } : {});
   await f.plugin.signIn();
   assert.deepEqual(f.calls.map(endpoint), ["lan", "wan"]);
   const track = (await f.plugin.search({ query: "x", kind: "tracks" })).tracks[0];
@@ -131,7 +131,7 @@ test("expired selection returns to the highest reachable priority", async (t) =>
   const f = await fixture(t, { interceptPing: true });
   addresses(f);
   let lanDown = true;
-  f.handle((call) => endpoint(call) === "lan" && lanDown ? { httpStatus: 503 } : {});
+  f.handle((call) => endpoint(call) === "lan" && lanDown ? { httpStatus: 503 } : call.method === "getSong" ? { song: song("track") } : {});
   await f.plugin.signIn();
   lanDown = false;
   const realNow = Date.now;

@@ -95,16 +95,18 @@ func TestSubsonicRuntime(t *testing.T) {
 	if err != nil || album.Album.Released != "2024-03-09" {
 		t.Fatalf("album: %+v %v", album, err)
 	}
-	stream, err := p.Stream("opaque/1", "lossless")
-	if err != nil {
-		t.Fatal(err)
-	}
-	u, err := url.Parse(stream.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stream.Type != "flac" || stream.Size != 123 || u.Scheme != "http" || u.Query().Get("id") != "opaque/1" || u.Query().Get("format") != "raw" {
-		t.Fatalf("stream: %+v", stream)
+	for _, quality := range []string{"standard", "high", "lossless"} {
+		stream, err := p.Stream("opaque/1", quality)
+		if err != nil {
+			t.Fatal(err)
+		}
+		u, err := url.Parse(stream.URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if stream.Type != "flac" || stream.Quality != "lossless" || stream.Size != 123 || u.Scheme != "http" || u.Query().Get("id") != "opaque/1" || u.Query().Get("format") != "raw" || u.Query().Has("maxBitRate") {
+			t.Fatalf("stream: %+v", stream)
+		}
 	}
 	lyrics, err := p.Lyrics("opaque/1")
 	if err != nil || lyrics.LRC != "[00:01.00]Hello" {
@@ -306,6 +308,9 @@ func TestSubsonicAddresses(t *testing.T) {
 		if strings.HasSuffix(r.URL.Path, "/search3.view") {
 			response["searchResult3"] = map[string]any{"song": []any{map[string]any{"id": "same/opaque", "title": "Track"}}}
 		}
+		if strings.HasSuffix(r.URL.Path, "/getSong.view") {
+			response["song"] = map[string]any{"id": "same/opaque", "suffix": "flac"}
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"subsonic-response": response})
 	}))
@@ -345,7 +350,7 @@ func TestSubsonicAddresses(t *testing.T) {
 	mu.Lock()
 	got := strings.Join(paths, ",")
 	mu.Unlock()
-	if got != "/lan/rest/ping.view,/wan/rest/ping.view,/wan/rest/search3.view,/lan/rest/ping.view,/wan/rest/ping.view" {
+	if got != "/lan/rest/ping.view,/wan/rest/ping.view,/wan/rest/search3.view,/lan/rest/ping.view,/wan/rest/ping.view,/wan/rest/getSong.view" {
 		t.Fatalf("routes: %s", got)
 	}
 	if err := p.SetSetting("serverUrl", server.URL+"/wan"); err != nil {

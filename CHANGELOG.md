@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.3
+
+- Play original MP3, native FLAC and Ogg Vorbis for every quality preference. Standard/high selections no longer trigger MP3 conversion for formats the official host can decode; FLAC remains lossless.
+- Request compatibility MP3 only for known formats without an official host decoder, including WAV/PCM, AAC, ALAC and Opus. Reject missing or conflicting format metadata rather than silently converting it. Do not label lossy streams as lossless or give transcoded streams the original file size.
+- Extend regressions for raw audio authentication, MIME/codec classification, all quality preferences, route recovery and metadata errors. Decode and seek real MP3/FLAC/Vorbis files through plugin URLs on pristine official hosts.
+- Update the user guides to explain original-audio playback and current decoder limits.
+
 ## 0.1.2
 
 - Collect album batches into one scrollable list across all album sorts and home-page See All links, instead of navigating every 200 albums. Bound each load to 5,000 albums and 8 seconds, retaining completed batches on later network failures with an accurately named Remaining albums continuation.

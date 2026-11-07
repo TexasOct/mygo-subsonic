@@ -61,5 +61,6 @@
   "The server did not return the new playlist. Reload your playlists before trying to create it again.": "服务器未返回新歌单，请先重新加载歌单列表，确认是否已创建，避免重复创建。",
   "You can only edit playlists created by your account.": "只能编辑当前账号创建的歌单。",
   "This track's position changed. Reload the playlist and try again.": "歌曲位置已变化，请重新加载歌单后再试。",
-  "This item is missing or is a video. Only audio tracks can be played.": "此项目不存在或是视频，目前只能播放音频歌曲。"
+  "This item is missing or is a video. Only audio tracks can be played.": "此项目不存在或是视频，目前只能播放音频歌曲。",
+  "The server did not identify this audio format reliably. Check the track's format metadata; it will not be transcoded automatically.": "服务器返回的音频格式缺失或不一致，请检查歌曲的格式信息；插件不会自动转码此歌曲。"
 }

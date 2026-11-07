@@ -8,13 +8,13 @@ test("playback retries immediately switch from a disconnected LAN to public entr
   const base = f.settings.serverUrl;
   f.settings.serverUrl = `${base}/lan, ${base}/wan`;
   let disconnected = false;
-  f.handle((call) => disconnected && call.url.pathname.includes("/lan/") ? { httpStatus: 503 } : {});
+  f.handle((call) => disconnected && call.url.pathname.includes("/lan/") ? { httpStatus: 503 } : call.method === "getSong" ? { song: song("track") } : {});
   await f.plugin.signIn();
   assert.equal(f.calls.length, 1);
   disconnected = true;
   const stream = await f.plugin.stream({ id: "track" });
   assert.equal(new URL(stream.url).pathname, "/music/wan/rest/stream.view");
-  assert.deepEqual(f.calls.map((call) => call.url.pathname), ["/music/lan/rest/ping.view", "/music/lan/rest/ping.view", "/music/wan/rest/ping.view"]);
+  assert.deepEqual(f.calls.map((call) => call.url.pathname), ["/music/lan/rest/ping.view", "/music/lan/rest/ping.view", "/music/wan/rest/ping.view", "/music/wan/rest/getSong.view"]);
 });
 
 // Raw and transcoded lossless requests both reconsider preferred entrances immediately.

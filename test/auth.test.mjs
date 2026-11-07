@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { fixture, md5 } from "./helpers.mjs";
+import { fixture, md5, song } from "./helpers.mjs";
 
 // A LAN HTTP login validates ping and uses an encoded, fresh token, never p.
 test("token authentication supports HTTP, Unicode, spaces and reverse-proxy paths", async (t) => {
@@ -35,7 +35,7 @@ test("legacy mode hex-encodes the original password, token failure never retries
   assert.equal(f.calls.length, 1);
   assert.equal(f.calls[0].params.has("p"), false);
   f.settings.authMode = "legacy";
-  f.handle(() => ({}));
+  f.handle(({ method }) => method === "getSong" ? { song: song("s") } : {});
   await f.plugin.signIn();
   const params = f.calls.at(-1).params;
   assert.equal(params.get("p"), `enc:${Buffer.from(f.settings.password, "utf8").toString("hex")}`);
