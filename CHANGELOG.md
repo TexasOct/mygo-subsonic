@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.7
+
+- Correct the overly restrictive album display introduced in 0.1.6: keep track singers, performers and instrument credits alongside album artists/groups, even when album-artist metadata exists.
+- Hide only writing/production contributor roles (composer, lyricist, arranger, writer and producer, plus Chinese equivalents) from album display. Keep unknown roles and dual-role artists visible, with existing ID/name deduplication and no artist-count cutoff.
+- Preserve complete track credits, server-side contributor search and participation-album discovery. Cover album details, library entrypoints, missing metadata and dual-role artists with regressions, and verify performer/composer separation through the official MyGo runtime.
+
 ## 0.1.6
 
 - Keep album headers and album lists focused on album artists/groups. Do not promote composers, lyricists, arrangers, performers or other contributor roles into album artists; use primary track artists only when album-artist metadata is absent.

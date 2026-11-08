@@ -62,3 +62,17 @@ export function creditsOf(config: Configuration, item: SubsonicAlbum): Artist[] 
   // track first could hide a homonymous ID on a later track of the album.
   return [...primaryCreditsOf(config, item), ...contributors];
 }
+
+// Only the album's display list hides writing/production credits. Unknown roles
+// (including instrument names and custom performers) remain visible; a person
+// with both a hidden role and a performing role must still appear once.
+const hiddenAlbumRoles = new Set([
+  "composer", "lyricist", "arranger", "writer", "producer",
+  "作曲", "作词", "作詞", "编曲", "編曲", "制作人", "製作人",
+]);
+
+export function albumDisplayCreditsOf(config: Configuration, item: SubsonicAlbum): Artist[] {
+  const contributors = Array.isArray(item.contributors) ? item.contributors.filter((credit) =>
+    !hiddenAlbumRoles.has(credit?.role?.trim().toLowerCase() || "")) : [];
+  return creditsOf(config, { ...item, contributors });
+}

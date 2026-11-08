@@ -4,8 +4,8 @@ import { fixture, song } from "./helpers.mjs";
 
 const credits = (artists) => artists.map(({ id, name }) => [id, name]);
 
-// Album headers show album artists only; complete, untruncated credits stay on tracks.
-test("album display excludes writers, arrangers and track performers without losing track credits", async (t) => {
+// Album headers keep all artists/performers, excluding only writing/production roles.
+test("album display keeps track performers but hides writers and arrangers without losing track credits", async (t) => {
   const performers = Array.from({ length: 28 }, (_, i) => ({ id: `performer/${i}`, name: `演奏家 ${i}` }));
   const album = {
     id: "million", name: "MILLION", artist: "CLEVER CLOVER", artistId: "group", coverArt: "cover",
@@ -26,7 +26,7 @@ test("album display excludes writers, arrangers and track performers without los
   const f = await fixture(t, { handler: () => ({ album }) });
   await f.plugin.signIn();
   const result = await f.plugin.album({ id: "million" });
-  assert.deepEqual(credits(result.album.artists), [["group", "CLEVER CLOVER"]]);
+  assert.deepEqual(credits(result.album.artists), [["group", "CLEVER CLOVER"], ...credits(performers)]);
   assert.equal(result.tracks[0].artists.length, 31);
   assert.deepEqual(credits(result.tracks[1].artists), [["performer/27", "演奏家 27"], ["", "制作人"]]);
   for (const track of result.tracks) {
@@ -115,9 +115,12 @@ test("empty and partial credits keep legacy fallbacks without blank artists", as
   assert.deepEqual(credits(result.tracks[2].artists), [["", "Display A"], ["", "Display B"]]);
 });
 
-// Shared album mapping keeps contributors out of every album surface without extra requests.
-test("album entrypoints display only album artists without extra metadata requests", async (t) => {
-  const album = { id: "album", name: "MILLION", artists: [{ id: "group", name: "CLEVER CLOVER" }], contributors: [{ role: "performer", artist: { id: "singer", name: "望月杏奈" } }] };
+// Shared album mapping retains performers and hides creators without extra requests.
+test("album entrypoints show performers but hide creators without extra metadata requests", async (t) => {
+  const album = { id: "album", name: "MILLION", artists: [{ id: "group", name: "CLEVER CLOVER" }], contributors: [
+    { role: "performer", artist: { id: "singer", name: "望月杏奈" } },
+    { role: "composer", artist: { id: "composer", name: "Composer" } },
+  ] };
   const f = await fixture(t, { handler: ({ method }) => {
     if (method === "getArtist") return { artist: { id: "group", name: "CLEVER CLOVER", album: [album] } };
     if (method === "getStarred2") return { starred2: { album: [album] } };
@@ -132,7 +135,7 @@ test("album entrypoints display only album artists without extra metadata reques
     ...(await f.plugin.savedAlbums()).albums,
     ...(await f.plugin.artist({ id: "group" })).albums,
   ];
-  for (const item of albums) assert.deepEqual(credits(item.artists), [["group", "CLEVER CLOVER"]]);
+  for (const item of albums) assert.deepEqual(credits(item.artists), [["group", "CLEVER CLOVER"], ["singer", "望月杏奈"]]);
   assert.ok(f.calls.every(({ method }) => method !== "getAlbum"));
 });
 
@@ -146,13 +149,13 @@ test("album details aggregate explicit track album artists and omit blank fallba
   const f = await fixture(t, { handler: () => ({ album }) });
   await f.plugin.signIn();
   const result = await f.plugin.album({ id: "album" });
-  assert.deepEqual(credits(result.album.artists), [["group", "Group"], ["", "Guest A"], ["", "Guest B"]]);
+  assert.deepEqual(credits(result.album.artists), [["group", "Group"], ["", "Guest A"], ["", "Guest B"], ["solo", "Solo"], ["track-only", "Track-only artist"]]);
   assert.deepEqual(credits(result.tracks[0].artists), [["solo", "Solo"]]);
   assert.deepEqual(credits(result.tracks[1].artists), []);
 });
 
-// Legacy albums without album-artist metadata fall back to primary track artists, never contributors.
-test("album fallback keeps primary track artists separate from contributors", async (t) => {
+// Missing album metadata must not hide singers or expose composer-only credits.
+test("album fallback keeps singers and performers while hiding composer-only credits", async (t) => {
   let album = { id: "album", contributors: [{ role: "composer", artist: { id: "writer", name: "Writer" } }], song: [
     song("one", { artists: [{ id: "solo", name: "Solo" }], contributors: [{ role: "composer", artist: { id: "writer", name: "Writer" } }] }),
   ] };
@@ -163,6 +166,10 @@ test("album fallback keeps primary track artists separate from contributors", as
   const result = await f.plugin.album({ id: "album" });
   assert.deepEqual(credits(result.album.artists), []);
   assert.deepEqual(credits(result.tracks[0].artists), [["writer", "Writer"]]);
+  album = { ...album, song: [song("three", { artist: "", artists: [], contributors: [
+    ...album.contributors, { role: "performer", artist: { id: "singer", name: "Singer" } },
+  ] })] };
+  assert.deepEqual(credits((await f.plugin.album({ id: "album" })).album.artists), [["singer", "Singer"]]);
 });
 
 // Searching a hidden composer still finds their identity, songs and participating albums.
@@ -190,7 +197,7 @@ test("composers remain searchable and linked to albums without appearing as albu
   } });
   await f.plugin.signIn();
   const detail = await f.plugin.album({ id: "release" });
-  assert.deepEqual(credits(detail.album.artists), [[group.id, group.name]]);
+  assert.deepEqual(credits(detail.album.artists), [[group.id, group.name], ["singer", "Singer"]]);
   assert.ok(detail.tracks[0].artists.some(({ id }) => id === composer.id));
   const people = await f.plugin.search({ query: composer.name, kind: "artists" });
   assert.deepEqual(credits(people.artists), [[composer.id, composer.name]]);
@@ -198,11 +205,33 @@ test("composers remain searchable and linked to albums without appearing as albu
   assert.equal(songs.tracks[0].id, track.id);
   assert.ok(songs.tracks[0].artists.some(({ id }) => id === composer.id));
   const releases = await f.plugin.search({ query: composer.name, kind: "albums" });
-  assert.deepEqual(credits(releases.albums[0].artists), [[group.id, group.name]]);
+  assert.deepEqual(credits(releases.albums[0].artists), [[group.id, group.name], ["singer", "Singer"]]);
   const person = await f.plugin.artist({ id: people.artists[0].id });
   assert.deepEqual(person.albums.map(({ id }) => id), ["release"]);
   assert.deepEqual(credits(person.albums[0].artists), [[group.id, group.name]]);
   assert.equal(f.calls.filter(({ method }) => method === "getAlbum").length, 1);
+});
+
+// Filter roles, not people: a composer who also sings stays, and custom performers are not lost.
+test("album display filters creator roles without hiding dual-role artists or unknown performers", async (t) => {
+  const hiddenRoles = ["composer", "lyricist", "arranger", "writer", "producer", " CoMpoSeR ", "作曲", "作词", "作詞", "编曲", "編曲"];
+  const hidden = hiddenRoles.map((role, i) => ({ role, artist: { id: `hidden-${i}`, name: `Creator ${i}` } }));
+  const dual = { id: "dual/+&", name: "Singer and composer" };
+  const performers = [
+    { role: "performer", subRole: "Vocal", artist: dual },
+    { role: "violin", artist: { id: "violin", name: "Violinist" } },
+    { role: "custom instrument", artist: { id: "custom", name: "Player" } },
+    { artist: { id: "unknown", name: "Unclassified artist" } },
+  ];
+  const album = { id: "album", artists: [{ id: "group", name: "Group" }], contributors: hidden.slice(0, 2), song: [
+    song("one", { artists: [{ id: "singer", name: "Singer" }], contributors: [...hidden, { role: "composer", artist: dual }, ...performers] }),
+  ] };
+  const f = await fixture(t, { handler: () => ({ album }) });
+  await f.plugin.signIn();
+  const result = await f.plugin.album({ id: "album" });
+  assert.deepEqual(credits(result.album.artists), [["group", "Group"], ["singer", "Singer"], ...credits(performers.map(({ artist }) => artist))]);
+  for (const { artist } of hidden) assert.ok(result.tracks[0].artists.some(({ id }) => id === artist.id));
+  assert.equal(result.album.artists.filter(({ id }) => id === dual.id).length, 1);
 });
 
 // An album-wide name collision must be resolved before assigning identities or order.

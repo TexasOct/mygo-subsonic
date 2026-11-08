@@ -350,6 +350,24 @@ function creditsOf(config, item) {
   }
   return [...primaryCreditsOf(config, item), ...contributors];
 }
+var hiddenAlbumRoles = /* @__PURE__ */ new Set([
+  "composer",
+  "lyricist",
+  "arranger",
+  "writer",
+  "producer",
+  "\u4F5C\u66F2",
+  "\u4F5C\u8BCD",
+  "\u4F5C\u8A5E",
+  "\u7F16\u66F2",
+  "\u7DE8\u66F2",
+  "\u5236\u4F5C\u4EBA",
+  "\u88FD\u4F5C\u4EBA"
+]);
+function albumDisplayCreditsOf(config, item) {
+  const contributors = Array.isArray(item.contributors) ? item.contributors.filter((credit) => !hiddenAlbumRoles.has(credit?.role?.trim().toLowerCase() || "")) : [];
+  return creditsOf(config, { ...item, contributors });
+}
 
 // src/mappers.ts
 var array = (value) => Array.isArray(value) ? value : [];
@@ -364,7 +382,7 @@ function toArtist(config, item) {
 function toAlbum(config, item) {
   const tracks = array(item.song);
   const albumArtists = mergeCredits(primaryCreditsOf(config, item), ...tracks.map((track) => primaryCreditsOf(config, { artists: track.albumArtists, displayArtist: track.displayAlbumArtist })));
-  const artists = albumArtists.length ? albumArtists : mergeCredits(...tracks.map((track) => primaryCreditsOf(config, track)));
+  const artists = mergeCredits(albumArtists, albumDisplayCreditsOf(config, item), ...tracks.map((track) => albumDisplayCreditsOf(config, track)));
   return {
     id: String(item.id ?? ""),
     name: item.name || item.album || "",

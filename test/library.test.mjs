@@ -35,7 +35,7 @@ test("album and artist pages map release dates, images and multi-artist credits"
   await f.plugin.signIn();
   const result = await f.plugin.album({ id: "album" });
   assert.equal(result.album.released, "2024-03-09");
-  assert.deepEqual(result.album.artists.map(({ id, name }) => [id, name]), [["a", "A"], ["b", "B"]]);
+  assert.deepEqual(result.album.artists.map(({ id, name }) => [id, name]), [["a", "A"], ["b", "B"], ["ar1", "Artist"]]);
   assert.equal(new URL(result.album.imageUrl).searchParams.get("id"), "art &+");
   assert.equal(new URL(result.album.imageUrl).protocol, "http:");
   assert.equal(result.tracks.length, 1);
