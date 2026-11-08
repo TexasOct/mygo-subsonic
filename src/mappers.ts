@@ -1,6 +1,6 @@
 import type { Album, Artist, Configuration, Playlist, ReleaseDate, SubsonicAlbum, SubsonicArtist, SubsonicPlaylist, SubsonicSong, Track } from "./types.js";
 import { mediaURL } from "./client.js";
-import { artistCredit, creditsOf, mergeCredits } from "./credits.js";
+import { artistCredit, creditsOf, mergeCredits, primaryCreditsOf } from "./credits.js";
 
 export const array = <T>(value: T[] | undefined): T[] => Array.isArray(value) ? value : [];
 const art = (config: Configuration, id?: string): string | undefined => id ? mediaURL(config, "getCoverArt", { id, size: 600 }) : undefined;
@@ -17,11 +17,15 @@ export function toArtist(config: Configuration, item: SubsonicArtist): Artist {
 }
 
 export function toAlbum(config: Configuration, item: SubsonicAlbum): Album {
+  const tracks = array(item.song);
+  const albumArtists = mergeCredits(primaryCreditsOf(config, item), ...tracks.map((track) =>
+    primaryCreditsOf(config, { artists: track.albumArtists, displayArtist: track.displayAlbumArtist })));
+  // Keep the album header focused on album artists. Older responses without
+  // album-artist metadata may use primary track artists, but never contributors.
+  const artists = albumArtists.length ? albumArtists : mergeCredits(...tracks.map((track) => primaryCreditsOf(config, track)));
   return {
     id: String(item.id ?? ""), name: item.name || item.album || "", imageUrl: art(config, item.coverArt),
-    artists: mergeCredits(creditsOf(config, item), ...array(item.song).flatMap((track) => [
-      creditsOf(config, { artists: track.albumArtists, displayArtist: track.displayAlbumArtist }), creditsOf(config, track),
-    ])),
+    artists,
     released: releaseDate(item.originalReleaseDate) || releaseDate(item.releaseDate) || (item.year ? String(item.year) : undefined), saved: Boolean(item.starred),
   };
 }

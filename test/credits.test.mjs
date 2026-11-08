@@ -4,8 +4,8 @@ import { fixture, song } from "./helpers.mjs";
 
 const credits = (artists) => artists.map(({ id, name }) => [id, name]);
 
-// Every credited role and every track contributes to the album, without truncation.
-test("album credits aggregate artists, writers, arrangers and performers across tracks", async (t) => {
+// Album headers show album artists only; complete, untruncated credits stay on tracks.
+test("album display excludes writers, arrangers and track performers without losing track credits", async (t) => {
   const performers = Array.from({ length: 28 }, (_, i) => ({ id: `performer/${i}`, name: `演奏家 ${i}` }));
   const album = {
     id: "million", name: "MILLION", artist: "CLEVER CLOVER", artistId: "group", coverArt: "cover",
@@ -26,13 +26,7 @@ test("album credits aggregate artists, writers, arrangers and performers across 
   const f = await fixture(t, { handler: () => ({ album }) });
   await f.plugin.signIn();
   const result = await f.plugin.album({ id: "million" });
-  assert.deepEqual(credits(result.album.artists), [
-    ["group", "CLEVER CLOVER"], ["effy", "EFFY"],
-    ...performers.slice(0, 14).map(({ id, name }) => [id, name]),
-    ["writer", "作詞家"],
-    ...performers.slice(14).map(({ id, name }) => [id, name]),
-    ["", "制作人"],
-  ]);
+  assert.deepEqual(credits(result.album.artists), [["group", "CLEVER CLOVER"]]);
   assert.equal(result.tracks[0].artists.length, 31);
   assert.deepEqual(credits(result.tracks[1].artists), [["performer/27", "演奏家 27"], ["", "制作人"]]);
   for (const track of result.tracks) {
@@ -121,8 +115,8 @@ test("empty and partial credits keep legacy fallbacks without blank artists", as
   assert.deepEqual(credits(result.tracks[2].artists), [["", "Display A"], ["", "Display B"]]);
 });
 
-// Shared album mapping applies to shelves, browsing, search, favorites and artist pages.
-test("album entrypoints preserve contributor credits without extra metadata requests", async (t) => {
+// Shared album mapping keeps contributors out of every album surface without extra requests.
+test("album entrypoints display only album artists without extra metadata requests", async (t) => {
   const album = { id: "album", name: "MILLION", artists: [{ id: "group", name: "CLEVER CLOVER" }], contributors: [{ role: "performer", artist: { id: "singer", name: "望月杏奈" } }] };
   const f = await fixture(t, { handler: ({ method }) => {
     if (method === "getArtist") return { artist: { id: "group", name: "CLEVER CLOVER", album: [album] } };
@@ -133,12 +127,12 @@ test("album entrypoints preserve contributor credits without extra metadata requ
   await f.plugin.signIn();
   const albums = [
     ...(await f.plugin.home()).sections.flatMap((section) => section.albums),
-    ...(await f.plugin.browse({ page: "albums:newest:0" })).sections.flatMap((section) => section.albums),
+    ...(await Promise.all(["newest", "recent", "frequent", "alphabeticalByName", "alphabeticalByArtist"].map((sort) => f.plugin.browse({ page: `albums:${sort}:0` })))).flatMap((result) => result.sections.flatMap((section) => section.albums)),
     ...(await f.plugin.search({ query: "MILLION", kind: "albums" })).albums,
     ...(await f.plugin.savedAlbums()).albums,
     ...(await f.plugin.artist({ id: "group" })).albums,
   ];
-  for (const item of albums) assert.deepEqual(credits(item.artists), [["group", "CLEVER CLOVER"], ["singer", "望月杏奈"]]);
+  for (const item of albums) assert.deepEqual(credits(item.artists), [["group", "CLEVER CLOVER"]]);
   assert.ok(f.calls.every(({ method }) => method !== "getAlbum"));
 });
 
@@ -147,20 +141,76 @@ test("album details aggregate explicit track album artists and omit blank fallba
   const album = { id: "album", name: "Title", song: [
     song("one", { artist: "", artistId: "", albumArtists: [{ id: "group", name: "Group" }], contributors: [{ role: "performer", artist: { id: "solo", name: "Solo" } }] }),
     song("two", { artist: "", artists: [], displayAlbumArtist: "Guest A; Guest B", contributors: [] }),
+    song("three", { artists: [{ id: "track-only", name: "Track-only artist" }] }),
   ] };
   const f = await fixture(t, { handler: () => ({ album }) });
   await f.plugin.signIn();
   const result = await f.plugin.album({ id: "album" });
-  assert.deepEqual(credits(result.album.artists), [["group", "Group"], ["solo", "Solo"], ["", "Guest A"], ["", "Guest B"]]);
+  assert.deepEqual(credits(result.album.artists), [["group", "Group"], ["", "Guest A"], ["", "Guest B"]]);
   assert.deepEqual(credits(result.tracks[0].artists), [["solo", "Solo"]]);
   assert.deepEqual(credits(result.tracks[1].artists), []);
 });
 
+// Legacy albums without album-artist metadata fall back to primary track artists, never contributors.
+test("album fallback keeps primary track artists separate from contributors", async (t) => {
+  let album = { id: "album", contributors: [{ role: "composer", artist: { id: "writer", name: "Writer" } }], song: [
+    song("one", { artists: [{ id: "solo", name: "Solo" }], contributors: [{ role: "composer", artist: { id: "writer", name: "Writer" } }] }),
+  ] };
+  const f = await fixture(t, { handler: () => ({ album }) });
+  await f.plugin.signIn();
+  assert.deepEqual(credits((await f.plugin.album({ id: "album" })).album.artists), [["solo", "Solo"]]);
+  album = { ...album, song: [song("two", { artist: "", artists: [], contributors: album.contributors })] };
+  const result = await f.plugin.album({ id: "album" });
+  assert.deepEqual(credits(result.album.artists), []);
+  assert.deepEqual(credits(result.tracks[0].artists), [["writer", "Writer"]]);
+});
+
+// Searching a hidden composer still finds their identity, songs and participating albums.
+test("composers remain searchable and linked to albums without appearing as album artists", async (t) => {
+  const composer = { id: "composer/+&", name: "作曲家 ÉFFY" };
+  const group = { id: "group", name: "CLEVER CLOVER" };
+  const track = song("one", {
+    albumId: "release", album: "MILLION", artists: [{ id: "singer", name: "Singer" }], albumArtists: [group],
+    contributors: [{ role: "composer", artist: composer }],
+  });
+  const album = { id: "release", name: "MILLION", artists: [group], contributors: track.contributors, song: [track] };
+  const f = await fixture(t, { handler: ({ method, params }) => {
+    if (method === "getAlbum") return { album };
+    if (method === "getArtist") {
+      assert.equal(params.get("id"), composer.id);
+      return { artist: { ...composer, album: [] } };
+    }
+    if (method === "search3") {
+      assert.equal(params.get("query"), composer.name);
+      if (Number(params.get("artistCount"))) return { searchResult3: { artist: [composer] } };
+      if (Number(params.get("albumCount"))) return { searchResult3: { album: [album] } };
+      return { searchResult3: { song: [track] } };
+    }
+    return {};
+  } });
+  await f.plugin.signIn();
+  const detail = await f.plugin.album({ id: "release" });
+  assert.deepEqual(credits(detail.album.artists), [[group.id, group.name]]);
+  assert.ok(detail.tracks[0].artists.some(({ id }) => id === composer.id));
+  const people = await f.plugin.search({ query: composer.name, kind: "artists" });
+  assert.deepEqual(credits(people.artists), [[composer.id, composer.name]]);
+  const songs = await f.plugin.search({ query: composer.name, kind: "tracks" });
+  assert.equal(songs.tracks[0].id, track.id);
+  assert.ok(songs.tracks[0].artists.some(({ id }) => id === composer.id));
+  const releases = await f.plugin.search({ query: composer.name, kind: "albums" });
+  assert.deepEqual(credits(releases.albums[0].artists), [[group.id, group.name]]);
+  const person = await f.plugin.artist({ id: people.artists[0].id });
+  assert.deepEqual(person.albums.map(({ id }) => id), ["release"]);
+  assert.deepEqual(credits(person.albums[0].artists), [[group.id, group.name]]);
+  assert.equal(f.calls.filter(({ method }) => method === "getAlbum").length, 1);
+});
+
 // An album-wide name collision must be resolved before assigning identities or order.
-test("album identity resolution considers homonymous artists on later tracks", async (t) => {
+test("album identity resolution considers homonymous album artists on later tracks", async (t) => {
+  const first = [{ name: "X" }, { id: "b", name: "B" }, { id: "x1", name: "X" }];
   const album = { id: "album", song: [
-    song("one", { artists: [{ name: "X" }, { id: "b", name: "B" }, { id: "x1", name: "X" }] }),
-    song("two", { artists: [{ id: "x2", name: "X" }] }),
+    song("one", { artists: first, albumArtists: first }),
+    song("two", { artists: [{ id: "x2", name: "X" }], albumArtists: [{ id: "x2", name: "X" }] }),
   ] };
   const f = await fixture(t, { handler: () => ({ album }) });
   await f.plugin.signIn();

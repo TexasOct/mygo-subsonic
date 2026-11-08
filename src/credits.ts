@@ -37,7 +37,8 @@ export function mergeCredits(...groups: Artist[][]): Artist[] {
   return [...result.values()];
 }
 
-export function creditsOf(config: Configuration, item: SubsonicAlbum): Artist[] {
+// Primary artists describe the release/track itself, not every credited role.
+export function primaryCreditsOf(config: Configuration, item: SubsonicAlbum): Artist[] {
   let primary = Array.isArray(item.artists) ? item.artists.map((credit) => artistCredit(config, credit)) : [];
   // Structured names are atomic, even if they contain punctuation. Legacy
   // strings only split unambiguous tag-list separators, not &, /, commas,
@@ -47,6 +48,10 @@ export function creditsOf(config: Configuration, item: SubsonicAlbum): Artist[] 
     const names = text.split(/[;；、\r\n]+/u).map((name) => name.trim()).filter(Boolean);
     primary = names.map((name) => artistCredit(config, { id: names.length === 1 ? item.artistId : undefined, name }));
   }
+  return primary;
+}
+
+export function creditsOf(config: Configuration, item: SubsonicAlbum): Artist[] {
   const contributors: Artist[] = [];
   for (const credit of Array.isArray(item.contributors) ? item.contributors : []) {
     if (credit?.artist) contributors.push(artistCredit(config, credit.artist));
@@ -55,5 +60,5 @@ export function creditsOf(config: Configuration, item: SubsonicAlbum): Artist[] 
   // TIPL credits. All roles participate; do not hard-code a performer allowlist.
   // Leave identity resolution to the caller's collection scope: resolving a
   // track first could hide a homonymous ID on a later track of the album.
-  return [...primary, ...contributors];
+  return [...primaryCreditsOf(config, item), ...contributors];
 }

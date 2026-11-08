@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.6
+
+- Keep album headers and album lists focused on album artists/groups. Do not promote composers, lyricists, arrangers, performers or other contributor roles into album artists; use primary track artists only when album-artist metadata is absent.
+- Retain complete track credits, server-side contributor search, artist navigation and participation-album discovery independently of the shorter album display. Search still depends on the server indexing and returning the relevant credits.
+- Apply the same mapping to home shelves, all album browse sorts, search results, saved albums and artist pages. Add regressions for hidden-but-searchable composers and verify separate album/track credits through the official MyGo runtime.
+
 ## 0.1.5
 
 - Supplement the album-artist index with the server's searchable artist catalogue, exposing track-only singers and other participants where supported. Deduplicate opaque IDs, preserve legacy offset links and provide a bounded Additional artists continuation without repeating legacy-index artists.

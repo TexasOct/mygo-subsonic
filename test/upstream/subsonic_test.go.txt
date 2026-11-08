@@ -114,15 +114,15 @@ func TestSubsonicRuntime(t *testing.T) {
 	if err != nil || album.Album.Released != "2024-03-09" {
 		t.Fatalf("album: %+v %v", album, err)
 	}
-	// Credit normalization, aggregation and name-only IDs must survive MoeJS and
-	// the real Go decoder, not just Node's JavaScript implementation.
-	if len(album.Album.Artists) != 3 || album.Album.Artists[1].ID != "effy/+&" || album.Album.Artists[2].ID != "" || album.Album.Artists[2].Name != "演奏家" {
+	// Album headers exclude contributors while full normalized track credits and
+	// navigable IDs survive MoeJS and the real Go decoder.
+	if len(album.Album.Artists) != 1 || album.Album.Artists[0].ID != "group" || album.Album.Artists[0].Name != "CLEVER CLOVER" {
 		t.Fatalf("album credits: %+v", album.Album.Artists)
 	}
-	if len(album.Tracks) != 1 || len(album.Tracks[0].Artists) != 2 || album.Tracks[0].Artists[0].Name != "ÉFFY" || len(album.Tracks[0].Album.Artists) != 3 || album.Tracks[0].Album.ID != "album" {
+	if len(album.Tracks) != 1 || len(album.Tracks[0].Artists) != 2 || album.Tracks[0].Artists[0].ID != "effy/+&" || album.Tracks[0].Artists[0].Name != "ÉFFY" || album.Tracks[0].Artists[1].ID != "" || album.Tracks[0].Artists[1].Name != "演奏家" || len(album.Tracks[0].Album.Artists) != 1 || album.Tracks[0].Album.Artists[0].ID != "group" || album.Tracks[0].Album.ID != "album" {
 		t.Fatalf("track credits: %+v", album.Tracks)
 	}
-	artist, err := p.Artist(album.Album.Artists[1].ID)
+	artist, err := p.Artist(album.Tracks[0].Artists[0].ID)
 	if err != nil || artist.Artist.ID != "effy/+&" || len(artist.Albums) != 1 || artist.Albums[0].ID != "album" {
 		t.Fatalf("artist navigation and participation: %+v %v", artist, err)
 	}

@@ -334,18 +334,21 @@ function mergeCredits(...groups) {
   }
   return [...result.values()];
 }
-function creditsOf(config, item) {
+function primaryCreditsOf(config, item) {
   let primary = Array.isArray(item.artists) ? item.artists.map((credit) => artistCredit(config, credit)) : [];
   if (!primary.some((credit) => credit.name)) {
     const text = item.artist?.trim() || item.displayArtist?.trim() || "";
     const names = text.split(/[;；、\r\n]+/u).map((name) => name.trim()).filter(Boolean);
     primary = names.map((name) => artistCredit(config, { id: names.length === 1 ? item.artistId : void 0, name }));
   }
+  return primary;
+}
+function creditsOf(config, item) {
   const contributors = [];
   for (const credit of Array.isArray(item.contributors) ? item.contributors : []) {
     if (credit?.artist) contributors.push(artistCredit(config, credit.artist));
   }
-  return [...primary, ...contributors];
+  return [...primaryCreditsOf(config, item), ...contributors];
 }
 
 // src/mappers.ts
@@ -359,14 +362,14 @@ function toArtist(config, item) {
   return artistCredit(config, item);
 }
 function toAlbum(config, item) {
+  const tracks = array(item.song);
+  const albumArtists = mergeCredits(primaryCreditsOf(config, item), ...tracks.map((track) => primaryCreditsOf(config, { artists: track.albumArtists, displayArtist: track.displayAlbumArtist })));
+  const artists = albumArtists.length ? albumArtists : mergeCredits(...tracks.map((track) => primaryCreditsOf(config, track)));
   return {
     id: String(item.id ?? ""),
     name: item.name || item.album || "",
     imageUrl: art(config, item.coverArt),
-    artists: mergeCredits(creditsOf(config, item), ...array(item.song).flatMap((track) => [
-      creditsOf(config, { artists: track.albumArtists, displayArtist: track.displayAlbumArtist }),
-      creditsOf(config, track)
-    ])),
+    artists,
     released: releaseDate(item.originalReleaseDate) || releaseDate(item.releaseDate) || (item.year ? String(item.year) : void 0),
     saved: Boolean(item.starred)
   };
