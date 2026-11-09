@@ -9,23 +9,24 @@ export function artistCredit(config: Configuration, item?: SubsonicArtist | null
   };
 }
 
+const creditNameKey = (name: string): string => name.normalize("NFC").trim().replace(/\s+/gu, " ").toLowerCase();
+
 // Names alone are display credits, never made-up server IDs. Prefer a real ID
 // when the same name appears in an ID-less credit, but preserve distinct IDs
 // even when two artists have exactly the same name.
 export function mergeCredits(...groups: Artist[][]): Artist[] {
   const items = groups.flat().filter((item) => item.name.trim());
-  const nameKey = (item: Artist) => item.name.normalize("NFC").trim().replace(/\s+/gu, " ").toLowerCase();
   const identified = new Map<string, Map<string, Artist>>();
   for (const item of items) {
     if (!item.id) continue;
-    const key = nameKey(item);
+    const key = creditNameKey(item.name);
     const matches = identified.get(key) || new Map<string, Artist>();
     matches.set(item.id, item);
     identified.set(key, matches);
   }
   const result = new Map<string, Artist>();
   for (const item of items) {
-    const name = nameKey(item);
+    const name = creditNameKey(item.name);
     const matches = identified.get(name);
     if (!item.id && matches && matches.size > 1) continue;
     const resolved = !item.id && matches?.size === 1 ? matches.values().next().value || item : item;
@@ -35,6 +36,18 @@ export function mergeCredits(...groups: Artist[][]): Artist[] {
     else result.set(key, { ...previous, imageUrl: previous.imageUrl || resolved.imageUrl, following: previous.following || resolved.following });
   }
   return [...result.values()];
+}
+
+// Some servers credit "A & B" alongside A and B. Hide that redundant display
+// entry only when every part exists independently in the complete display list.
+// Do not split names or use this projection for server identity matching.
+export function displayCredits(...groups: Artist[][]): Artist[] {
+  const artists = mergeCredits(...groups);
+  const names = new Set(artists.map((artist) => creditNameKey(artist.name)));
+  return artists.filter((artist) => {
+    const parts = artist.name.split(/\s+&\s+/u).map(creditNameKey);
+    return parts.length < 2 || parts.some((name) => !names.has(name));
+  });
 }
 
 // Primary artists describe the release/track itself, not every credited role.

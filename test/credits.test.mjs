@@ -38,6 +38,112 @@ test("album display keeps track performers but hides writers and arrangers witho
   assert.equal(f.calls.filter(({ method }) => method !== "ping").length, 1);
 });
 
+// A combined server credit must not repeat the independently credited artists in display lists.
+test("album and track displays omit ampersand credits already covered by individual artists", async (t) => {
+  const joined = { id: "duo/+&", name: "植松伸夫 & 島翔太朗" };
+  const members = [{ id: "shima", name: "島翔太朗" }, { id: "uematsu", name: "植松伸夫" }];
+  const track = song("one", {
+    artists: [joined], albumArtists: [joined],
+    contributors: members.map((artist) => ({ role: "performer", artist })),
+  });
+  const album = { id: "album", name: "マテリアキーパー", artists: [joined], song: [track] };
+  const f = await fixture(t, { handler: () => ({ album }) });
+  await f.plugin.signIn();
+  const result = await f.plugin.album({ id: album.id });
+  assert.deepEqual(credits(result.album.artists), credits(members));
+  assert.deepEqual(credits(result.tracks[0].artists), credits(members));
+  assert.deepEqual(credits(result.tracks[0].album.artists), credits(members));
+  assert.equal(f.calls.filter(({ method }) => method !== "ping").length, 1);
+});
+
+// Display cleanup needs every member as evidence; punctuation alone never splits an artist.
+test("ampersand display cleanup normalizes complete member names and preserves incomplete or atomic names", async (t) => {
+  const cases = [
+    { name: " ÉFFY  &  session player ", members: ["ÉFFY", "Session   Player"], omit: true },
+    { name: "A & B & C", members: ["A", "B", "C"], omit: true },
+    { name: "A & B", members: ["A"], omit: false },
+    { name: "A & B & C", members: ["A", "B"], omit: false },
+    { name: "A & B", members: ["A & C", "B", "C"], omit: false },
+    { name: "Earth, Wind & Fire", members: ["Guest"], omit: false },
+    { name: "R&B", members: ["R", "B"], omit: false },
+  ];
+  const tracks = cases.map(({ name, members }, i) => song(String(i), {
+    artists: [{ id: `combined-${i}`, name }],
+    contributors: members.map((name, j) => ({ role: "performer", artist: { id: `member-${i}-${j}`, name } })),
+  }));
+  const f = await fixture(t, { handler: () => ({ searchResult3: { song: tracks } }) });
+  await f.plugin.signIn();
+  const result = await f.plugin.search({ query: "credits", kind: "tracks" });
+  for (const [i, { name, members, omit }] of cases.entries()) {
+    const expected = members.map((name, j) => [`member-${i}-${j}`, name]);
+    if (!omit) expected.unshift([`combined-${i}`, name.trim()]);
+    assert.deepEqual(credits(result.tracks[i].artists), expected, name);
+  }
+});
+
+// All library projections share display cleanup, while artist lookup still uses raw server identities.
+test("ampersand display cleanup covers library entrypoints without losing artist search or participation", async (t) => {
+  const joined = { id: "duo/+&", name: "植松伸夫 & 島翔太朗" };
+  const members = [{ id: "shima", name: "島翔太朗" }, { id: "uematsu", name: "植松伸夫" }];
+  const track = song("one", {
+    artist: joined.name, artistId: joined.id,
+    albumId: "release", albumArtists: [joined, ...members],
+    contributors: members.map((artist) => ({ role: "performer", artist })),
+  });
+  const album = { id: "release", name: "マテリアキーパー", artists: [joined, ...members] };
+  const f = await fixture(t, { handler: ({ method, params }) => {
+    if (method === "getArtist") return { artist: { ...[joined, ...members].find(({ id }) => id === params.get("id")), album: [] } };
+    if (method === "getStarred2") return { starred2: { song: [track], album: [album] } };
+    if (method === "getPlaylist") return { playlist: { id: "p", entry: [track] } };
+    if (method === "getArtists") return { artists: { index: [{ artist: [joined, ...members] }] } };
+    if (method === "search3") return { searchResult3: { song: [track], album: [album], artist: [joined, ...members] } };
+    return { albumList2: { album: [album] } };
+  } });
+  await f.plugin.signIn();
+  const tracks = [
+    ...(await f.plugin.search({ query: "credits", kind: "tracks" })).tracks,
+    ...(await f.plugin.liked()).tracks,
+    ...(await f.plugin.playlist({ id: "p" })).tracks,
+  ];
+  for (const item of tracks) {
+    assert.deepEqual(credits(item.artists), credits(members));
+    assert.deepEqual(credits(item.album.artists), credits(members));
+  }
+  const albums = [
+    ...(await f.plugin.home()).sections.flatMap(({ albums }) => albums),
+    ...(await f.plugin.browse({ page: "albums:newest:0" })).sections.flatMap(({ albums }) => albums),
+    ...(await f.plugin.search({ query: "credits", kind: "albums" })).albums,
+    ...(await f.plugin.savedAlbums()).albums,
+  ];
+  for (const item of albums) assert.deepEqual(credits(item.artists), credits(members));
+  const artists = await f.plugin.search({ query: "credits", kind: "artists" });
+  assert.deepEqual(credits(artists.artists), credits([joined, ...members]));
+  const browsed = await f.plugin.browse({ page: "artists:0" });
+  assert.deepEqual(credits(browsed.sections[0].artists), credits([joined, ...members]));
+  for (const artist of artists.artists) {
+    const result = await f.plugin.artist({ id: artist.id });
+    assert.equal(result.artist.id, artist.id);
+    assert.deepEqual(result.albums.map(({ id }) => id), [album.id]);
+  }
+  assert.ok(f.calls.every(({ method }) => method !== "getAlbum"));
+});
+
+// Hidden creator roles cannot make an album's combined credit look redundant.
+test("album ampersand cleanup uses only visible credits and collects members across tracks", async (t) => {
+  const joined = { id: "combined", name: "A & B" };
+  const members = [{ id: "a", name: "A" }, { id: "b", name: "B" }];
+  const album = { id: "album", artists: [joined], song: [
+    song("one", { artists: [joined], contributors: members.map((artist) => ({ role: "composer", artist })) }),
+  ] };
+  const f = await fixture(t, { handler: () => ({ album }) });
+  await f.plugin.signIn();
+  const initial = await f.plugin.album({ id: album.id });
+  assert.deepEqual(credits(initial.album.artists), credits([joined]));
+  assert.deepEqual(credits(initial.tracks[0].artists), credits(members));
+  album.song = members.map((artist, i) => song(String(i), { artists: [artist] }));
+  assert.deepEqual(credits((await f.plugin.album({ id: album.id })).album.artists), credits(members));
+});
+
 // Structured names are atomic; text-only credits use explicit list separators, not name punctuation.
 test("legacy and display credits split explicit lists without inventing artist IDs", async (t) => {
   const songs = [

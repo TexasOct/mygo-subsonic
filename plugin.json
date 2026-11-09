@@ -1,7 +1,7 @@
 {
   "id": "subsonic",
   "name": "Subsonic",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "minAppVersion": "0.1.13",
   "main": "index.js",
   "playback": "stream",

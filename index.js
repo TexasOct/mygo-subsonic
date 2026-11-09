@@ -310,20 +310,20 @@ function artistCredit(config, item) {
     following: Boolean(item?.starred)
   };
 }
+var creditNameKey = (name) => name.normalize("NFC").trim().replace(/\s+/gu, " ").toLowerCase();
 function mergeCredits(...groups) {
   const items = groups.flat().filter((item) => item.name.trim());
-  const nameKey = (item) => item.name.normalize("NFC").trim().replace(/\s+/gu, " ").toLowerCase();
   const identified = /* @__PURE__ */ new Map();
   for (const item of items) {
     if (!item.id) continue;
-    const key = nameKey(item);
+    const key = creditNameKey(item.name);
     const matches = identified.get(key) || /* @__PURE__ */ new Map();
     matches.set(item.id, item);
     identified.set(key, matches);
   }
   const result = /* @__PURE__ */ new Map();
   for (const item of items) {
-    const name = nameKey(item);
+    const name = creditNameKey(item.name);
     const matches = identified.get(name);
     if (!item.id && matches && matches.size > 1) continue;
     const resolved = !item.id && matches?.size === 1 ? matches.values().next().value || item : item;
@@ -333,6 +333,14 @@ function mergeCredits(...groups) {
     else result.set(key, { ...previous, imageUrl: previous.imageUrl || resolved.imageUrl, following: previous.following || resolved.following });
   }
   return [...result.values()];
+}
+function displayCredits(...groups) {
+  const artists = mergeCredits(...groups);
+  const names = new Set(artists.map((artist2) => creditNameKey(artist2.name)));
+  return artists.filter((artist2) => {
+    const parts = artist2.name.split(/\s+&\s+/u).map(creditNameKey);
+    return parts.length < 2 || parts.some((name) => !names.has(name));
+  });
 }
 function primaryCreditsOf(config, item) {
   let primary = Array.isArray(item.artists) ? item.artists.map((credit) => artistCredit(config, credit)) : [];
@@ -382,7 +390,7 @@ function toArtist(config, item) {
 function toAlbum(config, item) {
   const tracks = array(item.song);
   const albumArtists = mergeCredits(primaryCreditsOf(config, item), ...tracks.map((track) => primaryCreditsOf(config, { artists: track.albumArtists, displayArtist: track.displayAlbumArtist })));
-  const artists = mergeCredits(albumArtists, albumDisplayCreditsOf(config, item), ...tracks.map((track) => albumDisplayCreditsOf(config, track)));
+  const artists = displayCredits(albumArtists, albumDisplayCreditsOf(config, item), ...tracks.map((track) => albumDisplayCreditsOf(config, track)));
   return {
     id: String(item.id ?? ""),
     name: item.name || item.album || "",
@@ -393,7 +401,7 @@ function toAlbum(config, item) {
   };
 }
 function toTrack(config, item, parent) {
-  const artists = mergeCredits(creditsOf(config, item));
+  const artists = displayCredits(creditsOf(config, item));
   const hasAlbumArtists = array(item.albumArtists).some((artist2) => artist2?.name?.trim() || artist2?.artist?.trim());
   const hasDisplayAlbumArtist = Boolean(item.displayAlbumArtist?.trim());
   let albumArtists = item.artists;

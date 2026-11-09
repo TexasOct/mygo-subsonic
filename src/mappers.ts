@@ -1,6 +1,6 @@
 import type { Album, Artist, Configuration, Playlist, ReleaseDate, SubsonicAlbum, SubsonicArtist, SubsonicPlaylist, SubsonicSong, Track } from "./types.js";
 import { mediaURL } from "./client.js";
-import { albumDisplayCreditsOf, artistCredit, creditsOf, mergeCredits, primaryCreditsOf } from "./credits.js";
+import { albumDisplayCreditsOf, artistCredit, creditsOf, displayCredits, mergeCredits, primaryCreditsOf } from "./credits.js";
 
 export const array = <T>(value: T[] | undefined): T[] => Array.isArray(value) ? value : [];
 const art = (config: Configuration, id?: string): string | undefined => id ? mediaURL(config, "getCoverArt", { id, size: 600 }) : undefined;
@@ -21,8 +21,8 @@ export function toAlbum(config: Configuration, item: SubsonicAlbum): Album {
   const albumArtists = mergeCredits(primaryCreditsOf(config, item), ...tracks.map((track) =>
     primaryCreditsOf(config, { artists: track.albumArtists, displayArtist: track.displayAlbumArtist })));
   // Album artists lead the list, followed by track artists and performers.
-  // Filtering belongs only to this display projection, never to search credits.
-  const artists = mergeCredits(albumArtists, albumDisplayCreditsOf(config, item), ...tracks.map((track) => albumDisplayCreditsOf(config, track)));
+  // Creator-role filtering belongs only to album display, never to raw credits.
+  const artists = displayCredits(albumArtists, albumDisplayCreditsOf(config, item), ...tracks.map((track) => albumDisplayCreditsOf(config, track)));
   return {
     id: String(item.id ?? ""), name: item.name || item.album || "", imageUrl: art(config, item.coverArt),
     artists,
@@ -31,7 +31,7 @@ export function toAlbum(config: Configuration, item: SubsonicAlbum): Album {
 }
 
 export function toTrack(config: Configuration, item: SubsonicSong, parent?: Album): Track {
-  const artists = mergeCredits(creditsOf(config, item));
+  const artists = displayCredits(creditsOf(config, item));
   const hasAlbumArtists = array(item.albumArtists).some((artist) => artist?.name?.trim() || artist?.artist?.trim());
   const hasDisplayAlbumArtist = Boolean(item.displayAlbumArtist?.trim());
   let albumArtists = item.artists;

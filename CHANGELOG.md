@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.8
+
+- Remove redundant combined artist credits such as `A & B` from album and track displays when every member is already credited independently in the same display list. Apply the cleanup across library, search, favorites and playlists without extra metadata requests.
+- Preserve punctuation in real artist names and incomplete combinations; require normalized full-name matches around a whitespace-surrounded `&`. Keep raw server identities for artist search, browsing, navigation and participation-album discovery.
+- Add regressions for the reported Japanese-name duplicate, Unicode/whitespace matching, multi-person and incomplete combinations, album-wide credit collection, hidden creator roles and all affected library entrypoints.
+
 ## 0.1.7
 
 - Correct the overly restrictive album display introduced in 0.1.6: keep track singers, performers and instrument credits alongside album artists/groups, even when album-artist metadata exists.
