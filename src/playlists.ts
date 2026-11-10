@@ -1,27 +1,37 @@
 import type { Configuration, SubsonicPlaylist } from "./types.js";
 import { assertCurrent, connectionKey, signedConfiguration } from "./config.js";
-import { request } from "./client.js";
+import { invalidateCoverURLs, request } from "./client.js";
+import { invalidatePlaylistCache, playlistData } from "./playlist-cache.js";
 import { fail, t } from "./errors.js";
 import { array, toPlaylist, toPlaylistDetails } from "./mappers.js";
 import { identifier } from "./paging.js";
 
 export async function playlists() {
   const config = signedConfiguration();
-  const response = await request(config, "getPlaylists");
+  const response = await playlistData(config);
   return array(response.playlists?.playlist).map((item) => toPlaylist(config, item));
 }
 export async function playlist({ id }: { id: string }) {
   const config = signedConfiguration();
-  const response = await request(config, "getPlaylist", { id: identifier(id) });
+  const response = await playlistData(config, identifier(id));
   if (!response.playlist) throw fail("unavailable", t("This playlist is no longer available on the server. Reload your playlists."));
   return toPlaylistDetails(config, response.playlist);
 }
 export async function createPlaylist({ name }: { name: string }) {
   const config = signedConfiguration();
   if (!name.trim()) throw fail("unavailable", t("Enter a name for the playlist."));
-  const response = await request(config, "createPlaylist", { name });
+  const response = await playlistWrite(() => request(config, "createPlaylist", { name }));
   if (!response.playlist) throw fail("server", t("The server did not return the new playlist. Reload your playlists before trying to create it again."));
   return toPlaylistDetails(config, response.playlist);
+}
+
+async function playlistWrite<T>(write: () => T | Promise<T>): Promise<T> {
+  const invalidate = () => { invalidatePlaylistCache(); invalidateCoverURLs(); };
+  invalidate();
+  try { return await write(); }
+  // Invalidate even on an ambiguous transport failure, and fence reads that
+  // began before or during the write so they cannot refill the new cache.
+  finally { invalidate(); }
 }
 
 // Serialize local read/modify/write by server, account and playlist. External
@@ -35,8 +45,9 @@ function editPlaylist(id: string, change: (config: Configuration, item: Subsonic
   const next = previous.catch(() => {}).then(async () => {
     assertCurrent(original);
     const response = await request(original, "getPlaylist", { id });
-    if (!response.playlist || response.playlist.owner !== original.username) throw fail("unavailable", t("You can only edit playlists created by your account."));
-    return change(original, response.playlist);
+    const playlist = response.playlist;
+    if (!playlist || playlist.owner !== original.username) throw fail("unavailable", t("You can only edit playlists created by your account."));
+    return playlistWrite(() => change(original, playlist));
   });
   edits.set(lock, next);
   // Handle the cleanup promise too; failed edits must not leak rejections.

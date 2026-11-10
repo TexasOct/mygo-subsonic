@@ -152,6 +152,32 @@ test("a ping body timeout falls back as a transport error", async (t) => {
   assert.ok(f.plugin.account());
 });
 
+// A late failed request cannot discard a route confirmed by a newer successful read.
+test("a late network failure does not clear a route already reused successfully", async (t) => {
+  let release, arrived;
+  const blocked = new Promise((resolve) => { release = resolve; });
+  const seen = new Promise((resolve) => { arrived = resolve; });
+  const f = await fixture(t, { handler: async ({ method, params }) => {
+    if (method === "search3" && params.get("query") === "old") {
+      arrived();
+      await blocked;
+      return { httpStatus: 503 };
+    }
+    return { playlists: { playlist: [{ id: "p", coverArt: "cover" }] } };
+  } });
+  t.after(() => release());
+  await f.plugin.signIn();
+  const pending = f.plugin.search({ query: "old", kind: "tracks" });
+  const rejected = assert.rejects(pending, { code: "network" });
+  await seen;
+  const first = await f.plugin.playlists();
+  release();
+  await rejected;
+  const pings = f.calls.filter(({ method }) => method === "ping").length;
+  assert.equal((await f.plugin.playlists())[0].imageUrl, first[0].imageUrl);
+  assert.equal(f.calls.filter(({ method }) => method === "ping").length, pings);
+});
+
 // Concurrent home shelves must share route discovery after a runtime restart.
 test("concurrent reads share one ordered probe sequence", async (t) => {
   const f = await fixture(t, { interceptPing: true });

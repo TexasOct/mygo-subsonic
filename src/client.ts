@@ -1,5 +1,6 @@
 import type { Configuration, Parameters, SubsonicResponse } from "./types.js";
-import { authentication } from "./config.js";
+import { authentication, connectionKey } from "./config.js";
+import { MemoryCache } from "./cache.js";
 import { apiFailure, fail, PluginError, t } from "./errors.js";
 import { currentBase, routedRequest } from "./routing.js";
 
@@ -12,8 +13,27 @@ export function parameters(config: Configuration, values: Parameters = {}): URLS
   return params;
 }
 
+// Stable artwork URLs let the host's image cache work across independent maps.
+// Audio and ordinary API authentication remain fresh for every request.
+const covers = new MemoryCache(5 * 60000, 2048, 2 * 1024 * 1024);
+let coverScope = "";
+export function invalidateCoverURLs(): void { covers.clear(); }
+
 export function mediaURL(config: Configuration, method: "stream" | "getCoverArt", values: Parameters): string {
-  return `${currentBase(config)}/rest/${method}.view?${parameters(config, values)}`;
+  const base = currentBase(config); // Validates configuration/session even on hits.
+  const build = () => `${base}/rest/${method}.view?${parameters(config, values)}`;
+  if (method === "stream") return build();
+  const scope = JSON.stringify([config.epoch, connectionKey(config), base]);
+  if (scope !== coverScope) { covers.clear(); coverScope = scope; }
+  const key = JSON.stringify(values);
+  const cached = covers.get(key);
+  if (cached !== undefined) return cached;
+  // Legacy auth has no random salt to rotate the host's cache key after edits
+  // or expiry. A fragment is local-only and is not sent to the Subsonic server.
+  const fragment = config.authMode === "legacy" ? `#cover-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}` : "";
+  const url = build() + fragment;
+  covers.set(key, url);
+  return url;
 }
 
 export async function request(config: Configuration, method: string, values: Parameters = {}, options: { refreshRoute?: boolean; deadline?: number } = {}): Promise<SubsonicResponse> {

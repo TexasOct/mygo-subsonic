@@ -1,5 +1,6 @@
 import { signedConfiguration } from "./config.js";
 import { request } from "./client.js";
+import { invalidatePlaylistCache } from "./playlist-cache.js";
 import { array, toAlbum, toTrack } from "./mappers.js";
 import { folder, identifier, offsetOf, pageOf } from "./paging.js";
 import type { Configuration } from "./types.js";
@@ -24,7 +25,9 @@ export async function isLiked({ ids }: { ids: string[] }): Promise<Record<string
 
 async function toggleStar(field: "id" | "albumId" | "artistId", id: string, on: boolean): Promise<void> {
   const config = signedConfiguration();
-  await request(config, on ? "star" : "unstar", { [field]: identifier(id) });
+  try { await request(config, on ? "star" : "unstar", { [field]: identifier(id) }); }
+  // Playlist tracks embed album/artist save/follow state, not just track IDs.
+  finally { invalidatePlaylistCache(); }
 }
 export const like = ({ id, on }: { id: string; on: boolean }) => toggleStar("id", id, on);
 export const saveAlbum = ({ id, on }: { id: string; on: boolean }) => toggleStar("albumId", id, on);

@@ -54,6 +54,13 @@ Official MyGo renders settings as text fields, without switches, dropdowns or pa
 - Artwork and audio URLs use the selected address. Each new playback URL request rechecks reachability without waiting for the metadata cache. The plugin cannot replace a URL after handing it to the host, so mid-stream failover is not seamless.
 - Sign-in saves a configuration-bound local marker only after a successful `ping`. Logout or connection changes invalidate it; matching markers survive runtime restarts.
 
+### In-memory caches
+
+- Artwork URL reuse is confined to `getCoverArt`: up to 5 minutes, 2,048 entries and a 2 MiB UTF-16 key/value estimate. Every lookup validates the session and scopes URLs to the connection, epoch and selected entrance. Entrance changes clear the URL cache. Token/salt pairs are reused only as part of the cached artwork URL; API requests and audio URLs retain fresh authentication. Legacy artwork uses a local-only random fragment so expiry/edits rotate the host cache key too. Do not persist or log these URLs. Live-server compatibility with repeated artwork authentication still requires deployment testing.
+- Playlist list/search and detail reads share a 30-second raw-metadata cache, capped at 33 entries and a 4 MiB UTF-16 key/value estimate; oversized responses are returned in full but not retained. Same-key reads share pending IO, errors are not retained, and JSON serialization/parsing isolates callers. Cache hits establish/refresh the current route before mapping URLs; probing and waiting share a 25-second per-caller deadline. There is no background refresh or stale-on-error fallback.
+- Editing bypasses cached metadata for current ownership and song positions. Playlist writes invalidate metadata and artwork both before and after an attempt, including ambiguous failures. Generation checks prevent reads started before/during a write from refilling the new cache; promise identity checks protect newer in-flight reads. Favorites invalidate playlist metadata because embedded artists/albums carry follow/save state. Local queues never replay uncertain writes.
+- Login/logout and connection changes clear all caches; connection fingerprints and epochs guard every read. Caches are bounded memory only and disappear on VM restart. The login marker alone is persistent. A plugin cache cannot evict host-held pages/images or push page refreshes; no offline or cross-restart image caching is claimed. `test/cache.test.mjs` covers cache bounds, TTLs, concurrency, edits, route changes and real bundle re-import; `TestSubsonicCache` verifies reuse/invalidation and VM reload through MoeJS.
+
 ### Protocol coverage
 
 The plugin uses Subsonic API 1.16.1 and optional OpenSubsonic lyrics. Durations and lyric timing use milliseconds.

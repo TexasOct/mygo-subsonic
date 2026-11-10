@@ -1,11 +1,12 @@
 import type { Configuration, Parameters, Session } from "./types.js";
 import { fail, t } from "./errors.js";
 import { serverAddresses } from "./addresses.js";
+import { resetCaches } from "./cache.js";
 
 export const SESSION = "account";
 export const CONNECTION_KEYS = new Set(["serverUrl", "username", "password", "authMode", "musicFolderId"]);
 let epoch = 0;
-export function invalidateConfiguration(): void { epoch++; }
+export function invalidateConfiguration(): void { epoch++; resetCaches(); }
 
 export function configuration(): Configuration {
   const urls = serverAddresses(host.setting("serverUrl"));

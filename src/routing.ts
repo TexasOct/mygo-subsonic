@@ -70,9 +70,12 @@ export async function routedRequest(config: Configuration, method: string, value
     try {
       const response = await transport.send(config, selected.base, method, values, READS.has(method) ? Math.max(2500, Math.floor(15000 / config.urls.length)) : 20000);
       assertCurrent(config);
+      // A late failure from another request must not clear a route that this
+      // successful read (or a newer probe) has already confirmed.
+      if (!active || active === selected) active = { ...selected };
       return response;
     } catch (error) {
-      if (retryable(error) && active?.base === selected.base && active.key === selected.key) active = undefined;
+      if (retryable(error) && active === selected) active = undefined;
       // A mutation might have committed before a connection failure. Never
       // replay it, even on another URL for the same server.
       if (!READS.has(method) || !retryable(error) || tried.size >= config.urls.length) throw error;

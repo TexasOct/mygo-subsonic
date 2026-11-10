@@ -1,6 +1,7 @@
 import type { Browse, Configuration, SearchResult, SubsonicAlbum } from "./types.js";
 import { signedConfiguration } from "./config.js";
 import { request } from "./client.js";
+import { playlistData } from "./playlist-cache.js";
 import { fail, t } from "./errors.js";
 import { array, toAlbum, toArtist, toPlaylist, toTrack } from "./mappers.js";
 import { folder, identifier, offsetOf, pageOf, PAGE_SIZE } from "./paging.js";
@@ -48,7 +49,7 @@ export async function search({ query, kind, offset = 0 }: { query: string; kind:
   const config = signedConfiguration();
   offset = offsetOf(offset);
   if (kind === "playlists") {
-    const response = await request(config, "getPlaylists");
+    const response = await playlistData(config);
     const needle = query.trim().toLowerCase();
     const result = pageOf(array(response.playlists?.playlist).filter((item) => item.name?.toLowerCase().includes(needle)), offset);
     return { playlists: result.items.map((item) => toPlaylist(config, item)), more: result.more };

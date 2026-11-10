@@ -64,6 +64,7 @@ HTTP, HTTPS, ports and subpaths are supported. Only use trusted addresses for th
 - LAN / public address fallback does not guarantee seamless switching for a track already playing.
 - Large libraries may load in sections. Use **See All** under **Remaining albums** or **Additional artists** to continue. If an artist's candidate songs exceed the lookup limit or cannot be fully loaded, the page asks you to retry or search for a specific album instead of presenting a failed lookup as an empty discography.
 - You can only edit your own playlists. Removing a track removes every occurrence of that track in the playlist.
+- Playlist lists and details stay in plugin memory for 30 seconds; local edits invalidate them, and editing still reads fresh server data. Artwork URLs are reused for up to 5 minutes to use MyGo's image cache. Caches are not written to disk or an offline mode; signing out or changing connection settings clears them. MyGo still controls when displayed pages refresh.
 - **MyGo displays and stores passwords as plain text.** Use a dedicated low-privilege account and HTTPS outside trusted networks. Do not share settings screenshots or authenticated audio/artwork URLs. See the [security notes](SECURITY.md).
 
 ## Feedback and development

@@ -51,12 +51,80 @@ function serverAddresses(value) {
   return [...new Set(entries.map(baseURL))];
 }
 
+// src/cache.ts
+var resets = /* @__PURE__ */ new Set();
+function resetCaches() {
+  for (const reset of resets) reset();
+}
+var MemoryCache = class {
+  constructor(ttl, limit, maxBytes) {
+    this.ttl = ttl;
+    this.limit = limit;
+    this.maxBytes = maxBytes;
+    resets.add(() => this.clear());
+  }
+  entries = /* @__PURE__ */ new Map();
+  pending = /* @__PURE__ */ new Map();
+  size = 0;
+  generation = 0;
+  clear() {
+    this.generation++;
+    this.entries.clear();
+    this.pending.clear();
+    this.size = 0;
+  }
+  get(key) {
+    const item = this.entries.get(key);
+    if (!item) return void 0;
+    this.entries.delete(key);
+    if (Date.now() >= item.expires) {
+      this.size -= item.size;
+      return void 0;
+    }
+    this.entries.set(key, item);
+    return item.value;
+  }
+  set(key, value) {
+    const previous = this.entries.get(key);
+    if (previous) this.size -= previous.size;
+    this.entries.delete(key);
+    const size = 2 * (key.length + value.length);
+    if (size > this.maxBytes) return;
+    this.entries.set(key, { value, expires: Date.now() + this.ttl, size });
+    this.size += size;
+    for (const [oldest, item] of this.entries) {
+      if (this.entries.size <= this.limit && this.size <= this.maxBytes) break;
+      this.entries.delete(oldest);
+      this.size -= item.size;
+    }
+  }
+  async load(key, read) {
+    const value = this.get(key);
+    if (value !== void 0) return value;
+    const pending2 = this.pending.get(key);
+    if (pending2) return pending2;
+    const generation = this.generation;
+    const retained = this.pending.size < 64;
+    const promise = read().then((result) => {
+      if (generation === this.generation) this.set(key, result);
+      return result;
+    });
+    if (retained) this.pending.set(key, promise);
+    try {
+      return await promise;
+    } finally {
+      if (this.pending.get(key) === promise) this.pending.delete(key);
+    }
+  }
+};
+
 // src/config.ts
 var SESSION = "account";
 var CONNECTION_KEYS = /* @__PURE__ */ new Set(["serverUrl", "username", "password", "authMode", "musicFolderId"]);
 var epoch = 0;
 function invalidateConfiguration() {
   epoch++;
+  resetCaches();
 }
 function configuration() {
   const urls = serverAddresses(host.setting("serverUrl"));
@@ -159,9 +227,10 @@ async function routedRequest(config, method, values, transport, refresh = false)
     try {
       const response = await transport.send(config, selected.base, method, values, READS.has(method) ? Math.max(2500, Math.floor(15e3 / config.urls.length)) : 2e4);
       assertCurrent(config);
+      if (!active || active === selected) active = { ...selected };
       return response;
     } catch (error) {
-      if (retryable(error) && active?.base === selected.base && active.key === selected.key) active = void 0;
+      if (retryable(error) && active === selected) active = void 0;
       if (!READS.has(method) || !retryable(error) || tried.size >= config.urls.length) throw error;
       selected = await route(config, transport.probe, tried);
     }
@@ -177,8 +246,27 @@ function parameters(config, values = {}) {
   }
   return params;
 }
+var covers = new MemoryCache(5 * 6e4, 2048, 2 * 1024 * 1024);
+var coverScope = "";
+function invalidateCoverURLs() {
+  covers.clear();
+}
 function mediaURL(config, method, values) {
-  return `${currentBase(config)}/rest/${method}.view?${parameters(config, values)}`;
+  const base = currentBase(config);
+  const build = () => `${base}/rest/${method}.view?${parameters(config, values)}`;
+  if (method === "stream") return build();
+  const scope2 = JSON.stringify([config.epoch, connectionKey(config), base]);
+  if (scope2 !== coverScope) {
+    covers.clear();
+    coverScope = scope2;
+  }
+  const key = JSON.stringify(values);
+  const cached = covers.get(key);
+  if (cached !== void 0) return cached;
+  const fragment = config.authMode === "legacy" ? `#cover-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}` : "";
+  const url = build() + fragment;
+  covers.set(key, url);
+  return url;
 }
 async function request(config, method, values = {}, options = {}) {
   const deadline = Math.min(Date.now() + 25e3, options.deadline ?? Infinity);
@@ -299,6 +387,51 @@ function setSetting({ key }) {
   if (!CONNECTION_KEYS.has(key)) return;
   if (account()) return;
   signOut();
+}
+
+// src/playlist-cache.ts
+var metadata = new MemoryCache(3e4, 33, 4 * 1024 * 1024);
+var scope = "";
+function invalidatePlaylistCache() {
+  metadata.clear();
+}
+async function playlistData(config, id) {
+  assertCurrent(config);
+  const current = JSON.stringify([config.epoch, connectionKey(config)]);
+  if (current !== scope) {
+    metadata.clear();
+    scope = current;
+  }
+  const deadline = Date.now() + 25e3;
+  await request(config, "ping", {}, { deadline });
+  const key = JSON.stringify([id === void 0 ? "list" : "detail", id]);
+  const load = metadata.load(key, async () => {
+    const response = await request(config, id === void 0 ? "getPlaylists" : "getPlaylist", id === void 0 ? {} : { id }, { deadline });
+    if (id !== void 0 && !response.playlist) throw fail("unavailable", t("This playlist is no longer available on the server. Reload your playlists."));
+    if (id === void 0 && response.playlists?.playlist !== void 0 && !Array.isArray(response.playlists.playlist)) {
+      throw fail("server", t("The server returned incomplete Subsonic data. Check its API support."));
+    }
+    return JSON.stringify(response);
+  });
+  let timer;
+  try {
+    const raw = await Promise.race([
+      load,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(fail("network", t("Could not connect to Subsonic. Check the server address, network and HTTPS certificate."))), Math.max(0, deadline - Date.now()));
+      })
+    ]);
+    assertCurrent(config);
+    try {
+      const response = JSON.parse(raw);
+      return response;
+    } catch {
+      metadata.clear();
+      throw fail("server", t("The server returned incomplete Subsonic data. Check its API support."));
+    }
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // src/credits.ts
@@ -685,7 +818,7 @@ async function search({ query, kind, offset = 0 }) {
   const config = signedConfiguration();
   offset = offsetOf(offset);
   if (kind === "playlists") {
-    const response2 = await request(config, "getPlaylists");
+    const response2 = await playlistData(config);
     const needle = query.trim().toLowerCase();
     const result2 = pageOf(array(response2.playlists?.playlist).filter((item) => item.name?.toLowerCase().includes(needle)), offset);
     return { playlists: result2.items.map((item) => toPlaylist(config, item)), more: result2.more };
@@ -749,7 +882,11 @@ async function isLiked({ ids }) {
 }
 async function toggleStar(field, id, on) {
   const config = signedConfiguration();
-  await request(config, on ? "star" : "unstar", { [field]: identifier(id) });
+  try {
+    await request(config, on ? "star" : "unstar", { [field]: identifier(id) });
+  } finally {
+    invalidatePlaylistCache();
+  }
 }
 var like = ({ id, on }) => toggleStar("id", id, on);
 var saveAlbum = ({ id, on }) => toggleStar("albumId", id, on);
@@ -769,21 +906,33 @@ async function played({ id }) {
 // src/playlists.ts
 async function playlists() {
   const config = signedConfiguration();
-  const response = await request(config, "getPlaylists");
+  const response = await playlistData(config);
   return array(response.playlists?.playlist).map((item) => toPlaylist(config, item));
 }
 async function playlist({ id }) {
   const config = signedConfiguration();
-  const response = await request(config, "getPlaylist", { id: identifier(id) });
+  const response = await playlistData(config, identifier(id));
   if (!response.playlist) throw fail("unavailable", t("This playlist is no longer available on the server. Reload your playlists."));
   return toPlaylistDetails(config, response.playlist);
 }
 async function createPlaylist({ name }) {
   const config = signedConfiguration();
   if (!name.trim()) throw fail("unavailable", t("Enter a name for the playlist."));
-  const response = await request(config, "createPlaylist", { name });
+  const response = await playlistWrite(() => request(config, "createPlaylist", { name }));
   if (!response.playlist) throw fail("server", t("The server did not return the new playlist. Reload your playlists before trying to create it again."));
   return toPlaylistDetails(config, response.playlist);
+}
+async function playlistWrite(write) {
+  const invalidate = () => {
+    invalidatePlaylistCache();
+    invalidateCoverURLs();
+  };
+  invalidate();
+  try {
+    return await write();
+  } finally {
+    invalidate();
+  }
 }
 var edits = /* @__PURE__ */ new Map();
 function editPlaylist(id, change, original = signedConfiguration()) {
@@ -795,8 +944,9 @@ function editPlaylist(id, change, original = signedConfiguration()) {
   }).then(async () => {
     assertCurrent(original);
     const response = await request(original, "getPlaylist", { id });
-    if (!response.playlist || response.playlist.owner !== original.username) throw fail("unavailable", t("You can only edit playlists created by your account."));
-    return change(original, response.playlist);
+    const playlist2 = response.playlist;
+    if (!playlist2 || playlist2.owner !== original.username) throw fail("unavailable", t("You can only edit playlists created by your account."));
+    return playlistWrite(() => change(original, playlist2));
   });
   edits.set(lock, next);
   void next.finally(() => {

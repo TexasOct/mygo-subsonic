@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.9
+
+- Reuse cover-art URLs for up to five minutes so independent library projections can hit MyGo's image cache. Bound URL retention and rotate it on session/entrance changes and playlist writes; keep fresh authentication for metadata and audio.
+- Cache raw playlist lists/search and details in memory for 30 seconds with bounded size, same-key request coalescing and isolated responses. Keep fresh reads for ownership/position-sensitive edits, invalidate on local or ambiguous writes, and fence late responses across edits and sessions.
+- Prevent a late failed request from clearing a route already confirmed by a newer successful read.
+- Add cache expiry, bounds, mutation, concurrency, route and reload regressions, including actual MoeJS tests in token and legacy modes. Do not persist caches, add process permissions, or claim offline support.
+
 ## 0.1.8
 
 - Remove redundant combined artist credits such as `A & B` from album and track displays when every member is already credited independently in the same display list. Apply the cleanup across library, search, favorites and playlists without extra metadata requests.

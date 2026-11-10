@@ -1,0 +1,141 @@
+package plugin
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strings"
+	"sync"
+	"testing"
+
+	"mygo-music/internal/music"
+)
+
+// Raw caches, URL reuse and invalidation must also work in the real MoeJS VM.
+func TestSubsonicCache(t *testing.T) {
+	for _, mode := range []string{"token", "legacy"} {
+		t.Run(mode, func(t *testing.T) {
+			var mu sync.Mutex
+			counts := map[string]int{}
+			name := "Name"
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if err := r.ParseForm(); err != nil {
+					t.Error(err)
+				}
+				method := strings.TrimPrefix(r.URL.Path, "/rest/")
+				mu.Lock()
+				defer mu.Unlock()
+				counts[method]++
+				if method == "getCoverArt.view" {
+					if r.Method != "GET" || r.Form.Get("id") != "cover/+&" || r.Form.Get("u") != "listener" {
+						t.Error("incorrect artwork request")
+					}
+					w.Write([]byte("cover"))
+					return
+				}
+				playlist := func() map[string]any {
+					return map[string]any{"id": "p/+&", "name": name, "owner": "listener", "coverArt": "cover/+&", "entry": []any{
+						map[string]any{"id": "a", "title": "First", "artist": "Artist"},
+						map[string]any{"id": "a", "title": "First", "artist": "Artist"},
+					}}
+				}
+				response := map[string]any{"status": "ok"}
+				switch method {
+				case "ping.view":
+				case "getPlaylists.view":
+					response["playlists"] = map[string]any{"playlist": []any{playlist()}}
+				case "getPlaylist.view":
+					response["playlist"] = playlist()
+				case "updatePlaylist.view":
+					name = r.Form.Get("name")
+				default:
+					t.Errorf("unexpected cache fixture method: %s", method)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]any{"subsonic-response": response})
+			}))
+			defer server.Close()
+			dataDir := t.TempDir()
+			p, err := Load(os.Getenv("MYGO_SUBSONIC_DIR"), dataDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				if p != nil {
+					p.Close()
+				}
+			}()
+			for key, value := range map[string]string{"serverUrl": server.URL, "username": "listener", "password": "secret", "authMode": mode} {
+				if err := p.SetSetting(key, value); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := p.SignIn(); err != nil {
+				t.Fatal(err)
+			}
+			lists, err := p.Playlists()
+			if err != nil || len(lists) != 1 {
+				t.Fatalf("playlist list: %v", err)
+			}
+			cover := lists[0].ImageURL
+			for range 2 {
+				again, err := p.Playlists()
+				if err != nil || len(again) != 1 || again[0].ImageURL != cover {
+					t.Fatal("list cache or cover URL reuse failed")
+				}
+				detail, err := p.Playlist("p/+&")
+				if err != nil || len(detail.Tracks) != 2 || detail.ImageURL != cover {
+					t.Fatal("detail cache changed entries or cover")
+				}
+			}
+			search, err := p.Search("Name", music.SearchPlaylists, 0)
+			if err != nil || len(search.Playlists) != 1 {
+				t.Fatal("playlist search cache failed")
+			}
+			mu.Lock()
+			listReads, detailReads := counts["getPlaylists.view"], counts["getPlaylist.view"]
+			mu.Unlock()
+			if listReads != 1 || detailReads != 1 {
+				t.Fatalf("repeated reads: list=%d detail=%d", listReads, detailReads)
+			}
+			if err := p.RenamePlaylist("p/+&", "Renamed"); err != nil {
+				t.Fatal(err)
+			}
+			lists, err = p.Playlists()
+			if err != nil || len(lists) != 1 || lists[0].Name != "Renamed" || lists[0].ImageURL == cover {
+				t.Fatal("write failed to invalidate list or artwork")
+			}
+			detail, err := p.Playlist("p/+&")
+			if err != nil || detail.Name != "Renamed" {
+				t.Fatal("write failed to invalidate detail")
+			}
+			mu.Lock()
+			listReads, detailReads = counts["getPlaylists.view"], counts["getPlaylist.view"]
+			mu.Unlock()
+			if listReads != 2 || detailReads != 3 {
+				t.Fatalf("edit must read fresh state: list=%d detail=%d", listReads, detailReads)
+			}
+			if b, err := music.Fetch(lists[0].ImageURL); err != nil || string(b) != "cover" {
+				t.Fatal("host could not fetch cached artwork URL")
+			}
+			p.mu.Lock()
+			storageKeys := len(p.storage)
+			p.mu.Unlock()
+			if storageKeys != 1 {
+				t.Fatal("memory cache leaked into persistent storage")
+			}
+			p.Close()
+			p, err = Load(os.Getenv("MYGO_SUBSONIC_DIR"), dataDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if a, err := p.Account(); err != nil || a == nil {
+				t.Fatal("login marker lost on VM reload")
+			}
+			if lists, err := p.Playlists(); err != nil || len(lists) != 1 || lists[0].Name != "Renamed" {
+				t.Fatal("fresh VM failed to establish a route for playlist read")
+			}
+		})
+	}
+}
