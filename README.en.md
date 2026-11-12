@@ -31,7 +31,7 @@ You can also download the plugin ZIP from [Releases](https://github.com/TexasOct
 ### First use
 
 1. Open **Settings → Plugins → Subsonic**.
-2. Enter your server address (for example, `http://192.168.1.10:4533`), username and password. Other fields can usually stay blank.
+2. Enter your server address (for example, `http://192.168.1.10:4533`), username and password. In MyGo **0.1.24+**, click **Save changes** below the masked password field. Leave the sign-in method at **Default (token, recommended)** unless your server requires legacy authentication.
 3. Switch to the Subsonic source and click **Sign In**.
 
 Connection details go in plugin settings. If sign-in fails, close the login window before checking your address and account in settings, then sign in again after making changes.
@@ -50,9 +50,13 @@ HTTP, HTTPS, ports and subpaths are supported. Only use trusted addresses for th
 
 | Option | What to enter |
 | --- | --- |
-| Sign-in method | Usually leave blank; enter `legacy` only if your server requires it |
+| Sign-in method | Keep **Default (token, recommended)** or select **Token**. Select **Legacy password** only if your server requires it. The plugin never switches methods automatically |
 | Music folder ID (optional) | Leave blank for all folders. To restrict supported views, enter the server's folder ID, not its name or disk path. Playlists are not filtered |
-| Save listening history | Enter `true` to enable; blank or `false` keeps it off. Uses MyGo's played event, without checking whether you finished the track |
+| Save listening history | Turn on the switch to enable; off by default. Uses MyGo's played event, without checking whether you finished the track |
+
+Native controls require MyGo **0.1.24+** ([upstream PR #152](https://github.com/egoist/mygo-music/pull/152)). Switches and selects save automatically; passwords require **Save changes**. Opening settings does not write defaults or migrate existing values. If a save fails, use **Save changes** to retry or **Discard changes** to restore the previous value.
+
+MyGo **0.1.13–0.1.23** still uses text fields: leave Sign-in method blank or enter `token`, or enter `legacy` only if required; enter `true` for listening history, or leave blank / enter `false` to disable it. Existing settings remain compatible, including the blank token default. Older nonstandard history values (such as `TRUE`) retain a text editor on new hosts until you explicitly replace them with `true` or `false`.
 
 ## Things to know
 
@@ -65,7 +69,7 @@ HTTP, HTTPS, ports and subpaths are supported. Only use trusted addresses for th
 - Large libraries may load in sections. Use **See All** under **Remaining albums** or **Additional artists** to continue. If an artist's candidate songs exceed the lookup limit or cannot be fully loaded, the page asks you to retry or search for a specific album instead of presenting a failed lookup as an empty discography.
 - You can only edit your own playlists. Removing a track removes every occurrence of that track in the playlist.
 - Playlist lists and details stay in plugin memory for 30 seconds; local edits invalidate them, and editing still reads fresh server data. Artwork URLs are reused for up to 5 minutes to use MyGo's image cache. Caches are not written to disk or an offline mode; signing out or changing connection settings clears them. MyGo still controls when displayed pages refresh.
-- **MyGo displays and stores passwords as plain text.** Use a dedicated low-privilege account and HTTPS outside trusted networks. Do not share settings screenshots or authenticated audio/artwork URLs. See the [security notes](SECURITY.md).
+- **Passwords are still stored as plain text.** MyGo 0.1.24+ masks the password field; older versions also display it as plain text. Masking is not encryption. Use a dedicated low-privilege account and HTTPS outside trusted networks. Do not share settings screenshots or authenticated audio/artwork URLs. See the [security notes](SECURITY.md).
 
 ## Feedback and development
 

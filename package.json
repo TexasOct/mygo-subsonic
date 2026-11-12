@@ -1,6 +1,6 @@
 {
   "name": "mygo-subsonic",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "A TypeScript Subsonic source plugin for MyGo Music",
   "private": true,
   "repository": { "type": "git", "url": "https://github.com/TexasOct/mygo-subsonic.git" },

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.10
+
+- Adopt official MyGo settings controls from upstream PR #152: masked password with explicit Save changes, a sign-in method selector and an opt-in listening-history switch (MyGo 0.1.24+).
+- Preserve existing string values, the blank token default and text fields on MyGo 0.1.13–0.1.23 without configuration migration. Translate choice labels and update setup/security guidance; password storage remains plaintext.
+- Add regressions for declared authentication choices, switch strings, localization and actual plugin settings interactions in the official host.
+
 ## 0.1.9
 
 - Reuse cover-art URLs for up to five minutes so independent library projections can hit MyGo's image cache. Bound URL retention and rotate it on session/entrance changes and playlist writes; keep fresh authentication for metadata and audio.

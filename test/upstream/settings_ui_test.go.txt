@@ -1,0 +1,126 @@
+package app
+
+import (
+	"fmt"
+	"os"
+	"testing"
+
+	"github.com/egoist/mygo/ui"
+	"mygo-music/internal/i18n"
+	"mygo-music/internal/music"
+	"mygo-music/internal/plugin"
+)
+
+// Use the shipped plugin's translated metadata and real persistence: native
+// controls must keep string values, mask secrets and never save on opening.
+func TestSubsonicSettingsUI(t *testing.T) {
+	oldLanguage := i18n.Language()
+	t.Cleanup(func() { i18n.SetLanguage(oldLanguage) })
+	for _, chinese := range []bool{false, true} {
+		for _, width := range []int{640, 1000} {
+			for _, dark := range []bool{false, true} {
+				t.Run(fmt.Sprintf("zh=%t/width=%d/dark=%t", chinese, width, dark), func(t *testing.T) {
+					i18n.SetLanguage(i18n.English)
+					if chinese {
+						i18n.SetLanguage(i18n.Chinese)
+					}
+					dataDir := t.TempDir()
+					p, err := plugin.Load(os.Getenv("MYGO_SUBSONIC_DIR"), dataDir)
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer p.Close()
+					const original = " old secret "
+					if err := p.SetSetting("password", original); err != nil {
+						t.Fatal(err)
+					}
+					a := newTestApp()
+					post := posts(a)
+					lib := addFake(a, p)
+					fields := p.Info().Settings
+					byKey := map[string]music.Setting{}
+					for _, field := range fields {
+						byKey[field.Key] = field
+					}
+					tt := ui.NewTester(func(c *ui.Context) {
+						ui.Column(c).Padding(24).Gap(20).Children(func() {
+							for _, field := range fields {
+								a.sourceSetting(c.Key(field.Key), lib, field, paletteFor(c.Theme()))
+							}
+						})
+					}, width, 1100)
+					tt.SetDark(dark)
+					settled(tt)
+					for _, key := range []string{"authMode", "scrobble"} {
+						if p.Setting(key) != "" {
+							t.Fatalf("opening wrote %s", key)
+						}
+					}
+					if len(a.settingPending) != 0 {
+						t.Fatal("opening queued a write")
+					}
+					password := byKey["password"]
+					if n, ok := tt.AccessByRole(ui.RoleTextField, password.Label); !ok || !n.Password || n.Value != "" {
+						t.Fatal("password was exposed through accessibility")
+					}
+					for _, key := range []string{"serverUrl", "username", "musicFolderId"} {
+						if n, ok := tt.AccessByRole(ui.RoleTextField, byKey[key].Label); !ok || n.Password {
+							t.Fatalf("missing text field %s", key)
+						}
+					}
+					if dir := os.Getenv("MM_FRAMES"); dir != "" {
+						saveFrame(t, dir, fmt.Sprintf("settings-zh-%t-%d-dark-%t.png", chinese, width, dark), tt.Image())
+					}
+					// Only an explicit Save may commit a password; keep Unicode/whitespace.
+					clickSettingRole(t, tt, ui.RoleTextField, password.Label)
+					tt.Key(ui.Cmd, ui.KeyA)
+					const edited = " new 密码 +&= "
+					tt.Type(edited)
+					tt.Key(0, ui.KeyEnter)
+					tt.Key(0, ui.KeyTab)
+					if p.Setting("password") != original || len(a.settingPending) != 0 {
+						t.Fatal("partial password saved")
+					}
+					clickSettingRole(t, tt, ui.RoleButton, T("Save changes"))
+					until(t, post, func() bool { return len(a.settingPending) == 0 })
+					tt.Frame()
+					if p.Setting("password") != edited {
+						t.Fatal("saved password changed")
+					}
+					// Choice labels are localized; only declared protocol strings persist.
+					auth := byKey["authMode"]
+					for _, option := range []music.SettingOption{auth.Options[2], auth.Options[1], auth.Options[0]} {
+						clickSettingRole(t, tt, ui.RolePopUpButton, auth.Label)
+						if err := tt.Click(option.Label); err != nil {
+							t.Fatal(err)
+						}
+						until(t, post, func() bool { return len(a.settingPending) == 0 })
+						tt.Frame()
+						if p.Setting("authMode") != option.Value {
+							t.Fatal("saved choice label instead of value")
+						}
+					}
+					// An unset switch is off, then writes exactly true/false on deliberate edits.
+					history := byKey["scrobble"]
+					for _, want := range []string{"true", "false"} {
+						clickSettingRole(t, tt, ui.RoleSwitch, history.Label)
+						until(t, post, func() bool { return len(a.settingPending) == 0 })
+						tt.Frame()
+						if p.Setting("scrobble") != want {
+							t.Fatalf("history did not save %s", want)
+						}
+					}
+					// A fresh VM reads the same values from settings.json, without migration.
+					reloaded, err := plugin.Load(os.Getenv("MYGO_SUBSONIC_DIR"), dataDir)
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer reloaded.Close()
+					if reloaded.Setting("password") != edited || reloaded.Setting("authMode") != "" || reloaded.Setting("scrobble") != "false" {
+						t.Fatal("settings did not survive reload")
+					}
+				})
+			}
+		}
+	}
+}

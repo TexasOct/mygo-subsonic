@@ -1,7 +1,7 @@
 {
   "id": "subsonic",
   "name": "Subsonic",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "minAppVersion": "0.1.13",
   "main": "index.js",
   "playback": "stream",
@@ -13,10 +13,18 @@
       "help": "Example: http://192.168.1.10:4533. For the same server's LAN and public addresses, separate them with commas, preferred address first. Up to 5 addresses; HTTP and HTTPS are supported."
     },
     { "key": "username", "label": "Username", "help": "Enter the username you use on your music server." },
-    { "key": "password", "label": "Password", "help": "Enter your server password or Subsonic app password. MyGo shows and saves it as plain text. Use a separate account with only the permissions you need." },
-    { "key": "authMode", "label": "Sign-in method", "help": "Leave blank for the recommended method (token). Enter legacy only if your server requires it. The plugin will not switch methods automatically." },
+    { "key": "password", "label": "Password", "type": "password", "help": "Enter your server password or Subsonic app password. In MyGo 0.1.24+, choose Save changes to apply it. Storage is still plain text; older MyGo also displays it as plain text. Use a dedicated low-privilege account." },
+    {
+      "key": "authMode", "label": "Sign-in method", "type": "select",
+      "options": [
+        { "value": "", "label": "Default (token, recommended)" },
+        { "value": "token", "label": "Token" },
+        { "value": "legacy", "label": "Legacy password" }
+      ],
+      "help": "Use token unless your server requires legacy password sign-in. On older MyGo, leave blank or enter token; enter legacy only if required. The plugin never switches methods automatically."
+    },
     { "key": "musicFolderId", "label": "Music folder ID (optional)", "help": "Leave blank to use all music folders. To limit supported library views to one folder, enter its server ID, not its name or disk path. Playlists are not filtered." },
-    { "key": "scrobble", "label": "Save listening history", "help": "Enter true to send played tracks to your server. Leave blank or enter false to keep this off. Uses MyGo's played event; it does not check whether you finished the track." }
+    { "key": "scrobble", "label": "Save listening history", "type": "boolean", "help": "Enable to send played tracks to your server. On older MyGo, enter true to enable; leave blank or enter false to disable. Uses MyGo's played event, not track completion." }
   ],
   "navigation": [
     { "builtin": "home" },
