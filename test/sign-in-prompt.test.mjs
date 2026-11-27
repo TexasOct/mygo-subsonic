@@ -50,7 +50,10 @@ test("a stale sign-in response does not replace guidance after logout or a newer
   release();
   await assert.rejects(oldLogin, { code: "signIn" });
   assert.deepEqual(f.prompts, before);
-  assert.deepEqual(f.plugin.account(), { id: "listener", name: "listener" });
+  const account = f.plugin.account();
+  assert.equal(account.id, "listener");
+  assert.equal(account.name, "listener");
+  assert.match(account.imageUrl, /\/getAvatar\.view\?/);
 });
 
 // Instructions are visible during a pending ping, not only after it fails.

@@ -12,6 +12,7 @@
 | 音乐服务器 | 兼容 Subsonic / OpenSubsonic 的服务器，需支持 API 1.16.1 及所用接口 |
 | 音乐库 | 浏览、搜索歌曲 / 专辑 / 歌手 / 歌单，显示封面和歌词 |
 | 收藏与歌单 | 喜欢歌曲、收藏专辑、关注歌手；创建、编辑、排序和删除自己的歌单 |
+| 账户头像 | 通过 Subsonic `getAvatar` 显示；Navidrome 在启用 Gravatar 且用户有邮箱时会跳转到 Gravatar |
 | 播放 | 原音优先、FLAC 无损直放，可选向服务器记录播放历史 |
 
 Navidrome、Gonic、原版 Subsonic 属于这类服务器，但尚未逐一实机验证，具体功能取决于服务端支持。

@@ -8,7 +8,10 @@ test("token authentication supports HTTP, Unicode, spaces and reverse-proxy path
   f.settings.serverUrl += "/rest///";
   assert.equal(f.plugin.account(), null);
   const account = await f.plugin.signIn();
-  assert.deepEqual(account, { id: "listener", name: "listener" });
+  assert.equal(account.id, "listener");
+  assert.equal(account.name, "listener");
+  assert.equal(new URL(account.imageUrl).pathname, "/music/rest/getAvatar.view");
+  assert.equal(new URL(account.imageUrl).searchParams.get("username"), "listener");
   assert.deepEqual(f.plugin.account(), account);
   await f.plugin.signIn();
   for (const call of f.calls) {

@@ -12,6 +12,7 @@ Listen to your Subsonic library in [MyGo Music](https://github.com/egoist/mygo-m
 | Music server | Subsonic / OpenSubsonic-compatible servers with API 1.16.1 and the endpoints you use |
 | Library | Browse and search tracks, albums, artists and playlists; cover art and lyrics |
 | Favorites and playlists | Like tracks, save albums, star artists; create, edit, reorder and delete your own playlists |
+| Account avatar | Shown via Subsonic `getAvatar`; Navidrome may redirect to Gravatar when Gravatar is enabled and the user has an email |
 | Playback | Original audio first, direct lossless FLAC, and optional listening history sent to your server |
 
 Navidrome, Gonic and original Subsonic are examples of these servers, but have not been individually tested with this plugin. Available features depend on the server.

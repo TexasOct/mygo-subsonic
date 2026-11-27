@@ -72,7 +72,7 @@ The plugin uses Subsonic API 1.16.1 and optional OpenSubsonic lyrics. Durations 
 | Album and artist details | `getAlbum`, `getArtist`; `search3` songs supplement artist participation albums |
 | Favorites | `getStarred2`, `star`, `unstar` |
 | Playlists | `getPlaylists`, `getPlaylist`, `createPlaylist`, `updatePlaylist`, `deletePlaylist` |
-| Cover art and playback | `getCoverArt`, `getSong`, `stream` |
+| Cover art, avatar and playback | `getCoverArt`, `getAvatar`, `getSong`, `stream` |
 | Lyrics | `getLyrics`; OpenSubsonic `getLyricsBySongId` is tried first when available |
 | Opt-in listening history | `scrobble`, triggered by MyGo's played event, not track completion |
 

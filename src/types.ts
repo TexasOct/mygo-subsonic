@@ -22,7 +22,7 @@ export interface Configuration {
   folder: string;
   scrobble: boolean;
 }
-export interface Account { id: string; name: string }
+export interface Account { id: string; name: string; imageUrl?: string }
 export interface Session { key: string; account: Account }
 export type Parameters = Record<string, string | number | boolean | readonly (string | number)[] | undefined>;
 
