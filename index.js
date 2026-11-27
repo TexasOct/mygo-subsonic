@@ -260,7 +260,7 @@ function mediaURL(config, method, values) {
     covers.clear();
     coverScope = scope2;
   }
-  const key = JSON.stringify(values);
+  const key = JSON.stringify([method, values]);
   const cached = covers.get(key);
   if (cached !== void 0) return cached;
   const fragment = config.authMode === "legacy" ? `#cover-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}` : "";
@@ -331,6 +331,14 @@ async function send(config, base, method, values, timeout2) {
 }
 
 // src/auth.ts
+function accountOf(config) {
+  return {
+    id: config.username,
+    name: config.username,
+    // Subsonic getAvatar; Navidrome may 302 to Gravatar when enabled.
+    imageUrl: mediaURL(config, "getAvatar", { username: config.username })
+  };
+}
 function guidedFailure(error, text) {
   const guidance = t(text);
   host.signInPrompt({ text: guidance });
@@ -354,7 +362,7 @@ async function signIn() {
   try {
     await request(config, "ping");
     assertCurrent(config);
-    const account2 = { id: config.username, name: config.username };
+    const account2 = accountOf(config);
     host.storage.set(SESSION, { key, account: account2 });
     return account2;
   } catch (error) {
@@ -378,7 +386,13 @@ function account() {
   try {
     const config = configuration();
     const session = host.storage.get(SESSION);
-    return session?.key === connectionKey(config) ? session.account : null;
+    if (session?.key !== connectionKey(config)) return null;
+    if (!session.account.imageUrl) {
+      const account2 = accountOf(config);
+      host.storage.set(SESSION, { key: session.key, account: account2 });
+      return account2;
+    }
+    return session.account;
   } catch {
     return null;
   }

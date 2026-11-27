@@ -1,8 +1,17 @@
 import type { Account, Configuration, Session } from "./types.js";
 import { assertCurrent, configuration, connectionKey, CONNECTION_KEYS, invalidateConfiguration, SESSION } from "./config.js";
 import { resetRoute } from "./routing.js";
-import { request } from "./client.js";
+import { mediaURL, request } from "./client.js";
 import { PluginError, t } from "./errors.js";
+
+function accountOf(config: Configuration): Account {
+  return {
+    id: config.username,
+    name: config.username,
+    // Subsonic getAvatar; Navidrome may 302 to Gravatar when enabled.
+    imageUrl: mediaURL(config, "getAvatar", { username: config.username }),
+  };
+}
 
 function guidedFailure(error: unknown, text: string): PluginError {
   const guidance = t(text);
@@ -27,7 +36,7 @@ export async function signIn(): Promise<Account> {
   try {
     await request(config, "ping");
     assertCurrent(config);
-    const account = { id: config.username, name: config.username };
+    const account = accountOf(config);
     host.storage.set(SESSION, { key, account });
     return account;
   } catch (error) {
@@ -50,7 +59,14 @@ export function account(): Account | null {
   try {
     const config = configuration();
     const session = host.storage.get<Session>(SESSION);
-    return session?.key === connectionKey(config) ? session.account : null;
+    if (session?.key !== connectionKey(config)) return null;
+    // Older sessions only stored id/name; fill imageUrl without forcing re-login.
+    if (!session.account.imageUrl) {
+      const account = accountOf(config);
+      host.storage.set(SESSION, { key: session.key, account });
+      return account;
+    }
+    return session.account;
   } catch { return null; }
 }
 

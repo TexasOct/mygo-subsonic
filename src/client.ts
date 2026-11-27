@@ -19,13 +19,13 @@ const covers = new MemoryCache(5 * 60000, 2048, 2 * 1024 * 1024);
 let coverScope = "";
 export function invalidateCoverURLs(): void { covers.clear(); }
 
-export function mediaURL(config: Configuration, method: "stream" | "getCoverArt", values: Parameters): string {
+export function mediaURL(config: Configuration, method: "stream" | "getCoverArt" | "getAvatar", values: Parameters): string {
   const base = currentBase(config); // Validates configuration/session even on hits.
   const build = () => `${base}/rest/${method}.view?${parameters(config, values)}`;
   if (method === "stream") return build();
   const scope = JSON.stringify([config.epoch, connectionKey(config), base]);
   if (scope !== coverScope) { covers.clear(); coverScope = scope; }
-  const key = JSON.stringify(values);
+  const key = JSON.stringify([method, values]);
   const cached = covers.get(key);
   if (cached !== undefined) return cached;
   // Legacy auth has no random salt to rotate the host's cache key after edits
